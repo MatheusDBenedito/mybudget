@@ -1,0 +1,156 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+
+model Account {
+  id        String   @id @default(uuid())
+  name      String
+  balance   Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  transactions Transaction[]
+  creditCards  CreditCard[]
+  recurringExpenses RecurringExpense[]
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String
+  color     String?
+  icon      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  transactions     Transaction[]
+  cardTransactions CardTransaction[]
+  recurringExpenses RecurringExpense[]
+}
+
+model Transaction {
+  id          String   @id @default(uuid())
+  description String
+  amount      Float
+  date        DateTime
+  type        TransactionType
+  status      TransactionStatus @default(PENDING)
+  isFixed     Boolean  @default(false)
+  
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id])
+  
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CreditCard {
+  id          String   @id @default(uuid())
+  name        String
+  limit                 Float
+  invoiceClosingOffset  Int      @default(7)
+  dueDay                Int
+  color       String?
+  
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id])
+  
+  transactions CardTransaction[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CardTransaction {
+  id          String   @id @default(uuid())
+  description String
+  amount      Float
+  date        DateTime
+  invoiceDate DateTime // Reference invoice date calculated purely from the purchase and card closing dates
+  installments Int     @default(1)
+  isFixed     Boolean  @default(false)
+  ignoredInvoices String? // Comma-separated or stringified JSON of "YYYY-MM" to skip when projecting fixed expenses
+  
+  creditCardId String
+  creditCard   CreditCard @relation(fields: [creditCardId], references: [id])
+  
+  categoryId  String?
+  category    Category?   @relation(fields: [categoryId], references: [id])
+  
+  installmentGroupId String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model RecurringExpense {
+  id          String   @id @default(uuid())
+  description String
+  amount      Float
+  billingDay  Int      // 1 to 31
+  isActive    Boolean  @default(true)
+  
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id])
+  
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum InvestmentType {
+  FIXED_INCOME
+  VARIABLE_INCOME
+  CRYPTO
+  OTHER
+}
+
+model Investment {
+  id             String         @id @default(uuid())
+  name           String
+  type           InvestmentType
+  investedAmount Float
+  currentValue   Float          // For manual tracking overriding simulation, default behavior uses this.
+  
+  investmentDate DateTime?      // Date the investment started (essential for CDB tax)
+  cdiPercentage  Float?         // % of CDI rate for fixed income calculations
+
+  // Variable income fields
+  sector         String?        // Ramo de atuação (ex: Tecnologia, Energia)
+  tickerCode     String?        // Código da ação/FII (ex: PETR4, HGLG11)
+  averagePrice   Float?         // Preço médio de compra
+  currentPrice   Float?         // Preço atual da cota/ação
+  quantity       Float?         // Quantidade de cotas/ações (Float for fractional)
+
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}

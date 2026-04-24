@@ -1,0 +1,366 @@
+0: Olá, Matheus! Sua fatura com
+1: vencimento em Fevereiro chegou
+2: no valor de R$ 8.996,42 .
+3: Data do vencimento: 05 de Fevereiro
+4: Limite total: R$ 23.000,00
+5: Opções de pagamento
+6: 1. Pagamento total Recomendado 2. Pagamento mínimo ou parcial 3. Parcelamento em 3x
+7: R$ 8.996,42 A partir de R$ 1.349,46 Entrada + 2x de R$ 3.102,67
+8: Sempre a sua melhor opção. Evite Pague qualquer valor da fatura A fatura é dividida em 3 parcelas
+9: juros ou qualquer outro tipo de entre o mínimo e o total. A fixas, sendo uma entrada mais 2
+10: encargo. diferença é cobrada com juros e parcela(s) com juros e impostos.
+11: impostos na sua próxima fatura. Confira as condições no app.
+12: O pagamento com boleto pode levar até 3 dias para ser Pagando pela conta C6 Bank ou com Pix, seu limite é
+13: processado. liberado em minutos.
+14: Toque no ícone "Cartões" na página inicial
+15: Toque em "Minha Fatura"
+16: Toque no botão "Pagar"
+17: 33690.00009 00000.010280 14367.082931 6
+18: Em caso de vencimento da fatura, solicite a 2ª via pelo app. Se não tiver dinheiro em conta, faça um Pix para sua
+19: conta do C6 Bank antes de pagar.
+20: 1 / 12
+21: Vencimento: 05 de Fevereiro Débito automático: Desativado MATHEUS DUARTE BENEDITO
+22: Valor da fatura: R$ 8.996,42 Anuidade: Isento Cartão C6 Carbon
+23: Melhor dia de compra: 27
+24: Pagamento de fatura
+25: Confira as opções e detalhes de pagamento da sua fatura
+26: 1. Pagamento total Recomendado R$ 8.996,42
+27: 2. Parcelamento de fatura Em até 11x de R$892,67
+28: Confira algumas opções de parcelamento disponíveis Encagos de parcelamento da fatura
+29: Você pode simular outras condições no app
+30: Juros do parcelamento em 11x 2,99% a.m. 42,41% a.a.
+31: Parcelamento Total a pagar CET
+32: CET do financiamento 3,65% a.m. 54,67% a.a.
+33: Entrada + 2x de R$ 3.102,67 R$ 9.308,01 52,05% a.a.
+34: IOF do parcelamento 0,38% + 0,0082% (a.d)
+35: Entrada + 5x de R$ 1.627,04 R$ 9.762,24 50,00% a.a.
+36: Entrada + 7x de R$ 1.259,00 R$ 10.072,00 49,56% a.a.
+37: Entrada + 9x de R$ 1.038,85 R$ 10.388,50 49,34% a.a.
+38: Entrada + 11x de R$ 892,67 R$ 10.712,04 49,24% a.a.
+39: 3. Pagamento mínimo R$ 1.349,46
+40: Composição do pagamento mínimo obrigatório Encargos da próx. fatura | Pgto mínimo obrigatório
+41: Caso você realize o pgto mínimo obrigatório, seus encargos serão a partir de:
+42: Gastos desta fatura R$ 1.349,46
+43: Juros Rotativo 14,50% a.m. 419,36% a.a.
+44: Saldo rotativo R$ 0,00
+45: CET do financiamento 15,13% a.m. 454,98% a.a.
+46: Encargos do crédito rotativo R$ 0,00
+47: Encargos e IOF do rotativo R$ 1.081,51
+48: Encargos de atraso R$ 0,00
+49: IOF do rotativo 0,38% + 0,0082% (a.d)
+50: Parcelamentos contratados R$ 0,00
+51: Taxas R$ 0,00
+52: IOF R$ 0,00
+53: Pagamento mínimo obrigatório R$ 1.349,46
+54: 2 / 12
+55: Vencimento: 05 de Fevereiro Débito automático: Desativado MATHEUS DUARTE BENEDITO
+56: Valor da fatura: R$ 8.996,42 Anuidade: Isento Cartão C6 Carbon
+57: Melhor dia de compra: 27
+58: Pagamento de fatura
+59: Confira as opções e detalhes de pagamento da sua fatura
+60: 4. Atrasar ou pagar menos que o mínimo da fatura Não recomendado
+61: Ao pagar um valor menor que o mínimo, a fatura entra em atraso
+62: Encargos cobrados nesta fatura em caso de atraso Encargos máximos para o próximo período (05/03)
+63: Juros do rotativo 14,50% a. 419,36% a. Juros máximo do contrato 22,50% a.m.
+64: Juros de mora por atraso - % a.m. 1,00%
+65: Encargos do parcelamento pós-rotativo
+66: Financiamento do pagamento mínimo obrigatório
+67: Multa por atraso 2,00%
+68: Juros do financiamento pós-rotativo 5,99% a.m. 102,95% a.
+69: IOF de financiamento - % a.m. 0,38% + 0,0082% (a.d)
+70: CET do financiamento 6,62% a.m. 118,23% a.
+71: IOF do atraso 0,38% + 0,0082% (a.d)
+72: Atenção
+73: Caso você não realize nenhuma das opções de pagamento apresentadas nesta fatura até a data do vencimento, e esteja
+74: em atraso, você autoriza o C6 Bank, nos termos do contrato, a realizar o débito em sua conta no valor do pagamento
+75: mínimo desta fatura, desde que haja saldo disponível. Dúvidas? Fale com a gente pelos nossos canais de atendimento.
+76: 3 / 12
+77: Vencimento: 05 de Fevereiro Débito automático: Desativado MATHEUS DUARTE BENEDITO
+78: Valor da fatura: R$ 8.996,42 Anuidade: Isento Cartão C6 Carbon
+79: Melhor dia de compra: 27
+80: Pagamento da fatura
+81: Detalhes sobre as opções de pagamento da sua fatura.
+82: Pagamento mínimo da fatura Fatura com saldo positivo Parcelamento de fatura
+83: Você pode pagar qualquer valor da fatura Em alguns casos, o pagamento de Se preferir, você também pode parcelar
+84: entre o mínimo e o total. O mínimo, despesas no cartão de crédito pode ter o valor total da sua fatura pelo app do
+85: equivalente a 15% do total da fatura, deve sido antecipado ou algum valor C6 Bank. O valor é dividido em entrada +
+86: ser pago para evitar o atraso. estornado.Importante: acompanhe os parcelas fixas com juros e IOF. As
+87: gastos nas próximas faturas para não condições de parcelamento estão
+88: Ao escolher pagar o mínimo, a diferença deixar nenhum pagamento em aberto. disponíveis no app.
+89: do valor será cobrada na fatura do mês
+90: seguinte com juros do Crédito Rotativo e
+91: Portabilidade de crédito
+92: IOF. Antecipação de fatura
+93: É a transferência de uma operação de
+94: Caso você tenha contratado o Crédito Até a data de vencimento da sua fatura,
+95: crédito de uma instituição financeira
+96: Rotativo em faturas anteriores ou tenha você pode pagar antecipadamente
+97: para outra, com condições mais
+98: contratado o Financiamento Pós- qualquer valor pelo app do C6 Bank. O
+99: vantajosas. Você pode solicitar a
+100: valor pago antecipadamente é
+101: Rotativo, se você pagar o valor mínimo da
+102: portabilidade das operações de crédito
+103: descontado do valor total da fatura
+104: sua fatura atual, você quita o valor do
+105: rotativo e parcelamentos da sua fatura
+106: assim que ela fechar.
+107: Crédito Rotativo do último período, bem
+108: para outra instituição financeira. Acesse
+109: como eventuais parcelas do
+110: seu DDC (Documento Descritivo de
+111: A antecipação é só referente aos valores
+112: Financiamento Pós-Rotativo a vencer
+113: Crédito) na área de Cartões no app,
+114: lançados na sua fatura em aberto. Entre
+115: nesta fatura, e contrata um crédito
+116: tocando em Minha fatura, Informações
+117: em contato com a Central de
+118: rotativo sobre as novas compras que você
+119: da Fatura e Meu crédito. Em caso de
+120: Atendimento para antecipar compras
+121: realizou.
+122: dúvidas, consulte nossos canais de
+123: parceladas.
+124: atendimento.
+125: Dúvidas frequentes
+126: Quanto tempo leva para compensar o Posso antecipar o pagamento da Como faço para renegociar uma
+127: pagamento da fatura? minha fatura? fatura em atraso?
+128: Se o pagamento for feito pelo app do Você pode antecipar o pagamento Fale com a gente pelos nossos
+129: C6 Bank, o limite é liberado em poucos pelo app do C6 Bank até a data de telefones (11) 2739-3003 (capitais e
+130: minutos e a compensação pode levar corte da fatura. regiões metropolitanas) ou 0800-777-
+131: até 24h. Já, se o pagamento for feito Em "Cartões", selecione a fatura, toque 1150 (demais localidades).
+132: por outros bancos, pode levar até 3 em "Antecipar", selecione o valor que
+133: dias úteis. quer antecipar e siga os próximos
+134: passos.
+135: Central de relacionamento 24h
+136: CHAT PARA CLIENTES SAC
+137: Débito Automático
+138: No app do C6 Bank 0800 660 0060
+139: CAPITAIS E REGIÕES METROPOLITANAS OUVIDORIA: 9h ÀS 18h
+140: Contratando o débito automático, você fica sempre em dia
+141: SEGUNDA A SEXTA,
+142: 3003 6116
+143: EXCETO FERIADOS com o pagamento – sem multas ou encargos por atraso. No
+144: DEMAIS LOCALIDADES 0800 660 6060 dia do vencimento, o débito é feito automaticamente na sua
+145: 0800 660 6116 conta e você acompanha tudo pelo extrato no app.
+146: WHATSAPP
+147: (11) 2832 6088
+148: © 2022 BANCO C6 S.A. CNPJ: 31.872.495/0001-72
+149: 4 / 12
+150: Vencimento: 05 de Fevereiro Débito automático: Desativado MATHEUS DUARTE BENEDITO
+151: Valor da fatura: R$ 8.996,42 Anuidade: Isento Cartão C6 Carbon
+152: Melhor dia de compra: 27
+153: Resumo da fatura
+154: Compras e pagamentos feitos até o fechamento desta fatura em 29/01/26.
+155: Valor em reais
+156: Resumo da fatura
+157: Compras nacionais 8.996,42
+158: Compras internacionais 0,00
+159: Anuidade diferenciada - Parcela 4/12 98,00
+160: Tarifa de saque 0,00
+161: Personalização de cartão físico adicional e/ou emissão de 2ª via 0,00
+162: IOF de financiamento e compras internacionais 0,00
+163: Juros de financiamento 0,00
+164: Juros de mora 0,00
+165: Multas por atraso 0,00
+166: Valor remanescente da fatura anterior 0,00
+167: Valores creditados Valor em reais
+168: Estornos / Crédito na Fatura (-) 98,00
+169: Total a pagar R$ 8.996,42
+170: Saldo obrigações futuras R$ 15.767,49
+171: Limite de cartão Limite de saque
+172: Valores atualizados na data de fechamento da fatura Valores atualizados na data de fechamento da fatura
+173: Total Utilizado Disponível Total Utilizado Disponível
+174: R$0,00 R$0,00 R$0,00 R$0,00 R$0,00 R$0,00
+175: 5 / 12
+176: Vencimento: 05 de Fevereiro Débito automático: Desativado MATHEUS DUARTE BENEDITO
+177: Valor da fatura: R$ 8.996,42 Anuidade: Isento Cartão C6 Carbon
+178: Melhor dia de compra: 27
+179: Transações do cartão principal
+180: Lembrando: nesta fatura serão lançadas apenas transações feitas até 29/01/26.
+181: C6 Carbon Final 7972 - MATHEUS D BENEDITO Subtotal deste cartão R$ 2.687,40
+182: Valores em reais
+183: 07 out AMAZONMKTPLC*RFGARCIAC - Parcela 4/4 87,75
+184: 14 nov AMAZONMKTCPI*AGROPETCO - Parcela 3/3 38,08
+185: 27 nov AMAZON RETAIL CPI - Parcela 2/2 27,28
+186: 30 nov AMAZON RETAIL CPI - Parcela 2/2 45,44
+187: 30 nov AMAZON RETAIL CPI - Parcela 2/2 29,73
+188: 02 jan Inclusao de Pagamento 8.080,57
+189: 05 jan HDI SEGUROS SA 320,02
+190: 08 jan FINPET*CLINICA VETER - Parcela 1/4 227,50
+191: 17 jan IG*IGRALAMEDA 1.851,20
+192: 18 jan AMAZONMKTCPI*ECONICCOM - Parcela 1/2 60,40
+193: 24 jan Anuidade Diferenciada - Parcela 4/12 98,00
+194: 24 jan Estorno Tarifa - Estorno 98,00
+195: C6 Carbon Virtual Final 9656 - MATHEUS D Cartão Virtual Subtotal deste cartão R$ 5.679,22
+196: 06 set CORTE CERTO - Parcela 5/6 941,78
+197: 03 nov HUBLA *LOUCAPVIAG - Parcela 3/12 58,31
+198: 12 nov DL *ALIPAY MAGAZINE LU - Parcela 3/12 211,23
+199: 27 nov MERCADO*MERCADOLIVRE - Parcela 2/4 20,59
+200: 28 nov MLP*EPOCA COSMETICOS-A - Parcela 2/3 71,60
+201: 6 / 12
+202: Vencimento: 05 de Fevereiro Débito automático: Desativado MATHEUS DUARTE BENEDITO
+203: Valor da fatura: R$ 8.996,42 Anuidade: Isento Cartão C6 Carbon
+204: Melhor dia de compra: 27
+205: Transações do cartão principal
+206: Lembrando: nesta fatura serão lançadas apenas transações feitas até 29/01/26.
+207: Valores em reais
+208: 28 nov MERCADOLIVRE*MERCADOL - Parcela 2/5 170,39
+209: 28 nov ZEFTER - Parcela 2/4 286,97
+210: 09 dez MERCADOLIVRE*MERCADOL - Parcela 2/2 44,75
+211: 11 dez NUUVEM *NUUVEM - Parcela 2/5 27,29
+212: 17 dez CT AUTOMOTIVO TIRONI - Parcela 2/4 120,50
+213: 18 dez MERCADOLIVRE*3PRODUTO - Parcela 2/2 22,82
+214: 29 dez MLP *KABUM-KABUM - Parcela 1/10 243,68
+215: 29 dez RDSAUDE ONLINE 43,99
+216: 29 dez ATACADAO 837 AS 153,01
+217: 30 dez POSTO CAMPEIRO 195,86
+218: 30 dez WAL MART BRASIL LTDA 16,48
+219: 30 dez ANGELONI SUPER LOJA 24 194,89
+220: 30 dez PANVEL MATRIZ 56,99
+221: 30 dez PAMELLAKELLINDE 70,00
+222: 30 dez SACOLAO POPULAR 24,57
+223: 31 dez CHAMPAGNAT 74,02
+224: 31 dez MERCEARIA SILMARA LTD 37,90
+225: 03 jan DECATHLON 19,99
+226: 03 jan COBASI CURITIBA M TOUR 50,31
+227: 03 jan COBASI CURITIBA M TOUR 16,28
+228: 04 jan POSTOTREVISOLTDA 3,50
+229: 7 / 12
+230: Vencimento: 05 de Fevereiro Débito automático: Desativado MATHEUS DUARTE BENEDITO
+231: Valor da fatura: R$ 8.996,42 Anuidade: Isento Cartão C6 Carbon
+232: Melhor dia de compra: 27
+233: Transações do cartão principal
+234: Lembrando: nesta fatura serão lançadas apenas transações feitas até 29/01/26.
+235: Valores em reais
+236: 06 jan VET CENTER PET SHOP 26,28
+237: 06 jan MERCADOLIVRE*2PRODUTO 63,29
+238: 08 jan CLARO FLEX 39,99
+239: 08 jan POSTO CAMPEIRO 246,23
+240: 09 jan TOTALPASS 119,00
+241: 09 jan EC *MELIMAIS 8,90
+242: 09 jan CHAMPAGNAT 50,17
+243: 09 jan FARMACIA DROG NISSEI S 34,90
+244: 09 jan CONTORNO DA BOLA 360,00
+245: 10 jan POSTO CAMPEIRO 74,87
+246: 10 jan TOP HAUS 93,39
+247: 10 jan UJ FOODS LTDA 91,00
+248: 11 jan IFOOD CLUB 7,95
+249: 11 jan BAR E CONVENIENCIA MUN 10,00
+250: 11 jan SORVETERIA 60 SABORES 38,34
+251: 11 jan EBN *SPOTIFY 40,90
+252: 12 jan POSTO RUDNICK 158,51
+253: 12 jan RESTAURANTE RUDNICK 28,30
+254: 13 jan LIRIO BIGORRILHO 73,36
+255: 14 jan RAIA122 12,12
+256: 14 jan TUBAPIZZA 71,08
+257: 8 / 12
+258: Vencimento: 05 de Fevereiro Débito automático: Desativado MATHEUS DUARTE BENEDITO
+259: Valor da fatura: R$ 8.996,42 Anuidade: Isento Cartão C6 Carbon
+260: Melhor dia de compra: 27
+261: Transações do cartão principal
+262: Lembrando: nesta fatura serão lançadas apenas transações feitas até 29/01/26.
+263: Valores em reais
+264: 15 jan SMILES CLUB SMILES 46,00
+265: 15 jan THE NORTH FACE 49,00
+266: 15 jan AMMO VAREJO S A 116,56
+267: 15 jan NOELI DE F A DE ANDRA 7,00
+268: 16 jan LIVELO TRANSF CONTAS - Parcela 1/6 42,27
+269: 17 jan PETLOVE SAUD*PETLOVE S 43,72
+270: 17 jan ANGELONI SUPER LOJA 24 3,99
+271: 17 jan PET SHOW BIGORRILHO 5,50
+272: 18 jan POSTO CAMPEIRO 236,57
+273: 19 jan VET CENTER PET SHOP 31,54
+274: 19 jan RDSAUDE ONLINE 6,77
+275: 19 jan DL *DLRAPPI BR 12,46
+276: 19 jan LIVELO TRANSF CONTAS - Parcela 1/6 56,47
+277: 23 jan DL*GOOGLE YOUTUB 53,90
+278: 24 jan EDUARDOVIEIRALIMA 35,00
+279: 24 jan AUTOPECAS ALVORADA F04 42,30
+280: 24 jan ATACADAO 848 AS 4,99
+281: 24 jan RAIA122 9,99
+282: 26 jan MERCADOLIVRE*MERCADOL - Parcela 1/5 26,52
+283: 26 jan PAGUE MENOSA 10 11,68
+284: 28 jan RAIA122 10,71
+285: 9 / 12
+286: Vencimento: 05 de Fevereiro Débito automático: Desativado MATHEUS DUARTE BENEDITO
+287: Valor da fatura: R$ 8.996,42 Anuidade: Isento Cartão C6 Carbon
+288: Melhor dia de compra: 27
+289: Transações dos cartões adicionais
+290: Lembrando: nesta fatura serão lançadas apenas transações feitas até 29/01/26.
+291: C6 Carbon Final 1566 - LETICIA P DUARTE Subtotal deste cartão R$ 629,80
+292: Valores em reais
+293: 29 nov STUDIO UNION - Parcela 2/4 104,75
+294: 02 dez EC *AURABEAUTY - Parcela 2/2 39,24
+295: 13 dez SCARPINNI CALACADOS - Parcela 2/2 39,99
+296: 13 dez HNA*OBOTICARIO - Parcela 2/2 43,99
+297: 23 dez KOLIN JOIAS CONTEMPORA - Parcela 2/3 35,66
+298: 29 dez MEGA INFOTRONIC 50,00
+299: 29 dez MILIUM LOJA 28 1,60
+300: 29 dez RAIA122 15,18
+301: 30 dez APPLE.COM/BILL 19,90
+302: 31 dez CLARO FLEX 39,99
+303: 31 dez CHAMPAGNAT 8,49
+304: 04 jan RAIA122 12,88
+305: 15 jan CASA CHINA 10,49
+306: 16 jan L OCCITANE AU BRESIL 12,12
+307: 18 jan SHOPEE *CLOSETDACRIS - Parcela 1/2 44,38
+308: 18 jan SHOPEE *FASHIONBLOGUEI - Parcela 1/3 43,93
+309: 20 jan IMY UTILIDADES LTDA 11,58
+310: 21 jan CITY PARK 7,00
+311: 23 jan IMY UTILIDADES LTDA 5,58
+312: 10 / 12
+313: Vencimento: 05 de Fevereiro Débito automático: Desativado MATHEUS DUARTE BENEDITO
+314: Valor da fatura: R$ 8.996,42 Anuidade: Isento Cartão C6 Carbon
+315: Melhor dia de compra: 27
+316: Transações dos cartões adicionais
+317: Lembrando: nesta fatura serão lançadas apenas transações feitas até 29/01/26.
+318: Valores em reais
+319: 23 jan SONIA APARECIDA ALMEID 3,10
+320: 24 jan RAIA122 8,45
+321: 24 jan FAMILIA PANTUCCI PAES 16,70
+322: 24 jan LIBELULA BRECH 54,80
+323: 11 / 12
+324: Vencimento: 05 de Fevereiro Débito automático: Desativado MATHEUS DUARTE BENEDITO
+325: Valor da fatura: R$ 8.996,42 Anuidade: Isento Cartão C6 Carbon
+326: Melhor dia de compra: 27
+327: Formas de pagamento
+328: Você pode pagar sua fatura com débito em conta, QR Code Pix ou boleto. Lembre-se: com débito em conta e Pix, seu limite é
+329: liberado em minutos. O pagamento com boleto pode levar até 3 dias para ser processado.
+330: Pague com Pix e libere seu limite em minutos
+331: Valor da fatura:
+332: É só escanear o QR Code usando o app de qualquer banco para pagar
+333: R$ 8.996,42
+334: com Pix.
+335: Vencimento:
+336: Se preferir, você também pode usar o QR Code para pagar com dinheiro
+337: 05/02/2026
+338: em caixas de outros bancos.
+339: Você também pode copiar o código Pix abaixo:
+340: null
+341: 336 Recibo do pagador
+342: NÚMERO DO CARTÃO NOSSO NÚMERO VENCIMENTO
+343: 7972 281436708 05/02/2026
+344: VALOR TOTAL PAGAMENTO MÍNIMO VALOR PAGO R$
+345: 8.996,42 1.349,46
+346: 336 33690.00009 00000.010280 14367.082931 6 00000000000000
+347: LOCAL DE PAGAMENTO VENCIMENTO
+348: CANAIS ELETRONICOS, AGENCIAS OU CORRESPONDENTES DE TODO O BRASIL 05/02/2026
+349: BENEFICIÁRIO AGÊNCIA/CÓDIGO DO BENEFICIÁRIO
+350: 0001 / 4207 - 2
+351: Banco C6 SA
+352: DATA DO DOCUMENTO N. DO DOCUMENTO ESPÉCIE DOC. ACEITE DATA DO PROCESSAMENTO NOSSO NÚMERO
+353: 25/02/2026 6849504940 DM N 29/01/2026 281436708
+354: USO DO BANCO CARTEIRA ESPÉCIE QUANTIDADE VALOR (=) VALOR TOTAL DO DOCUMENTO
+355: 29 R$ 8.996,42 8.996,42
+356: INSTRUÇÕES (-) PAGAMENTO MÍNIMO
+357: (-) VALOR DO PARCELAMENTO
+358: (-) DESCONTO / ABATIMENTO
+359: PAGADOR: MATHEUS DUARTE BENEDITO (+) MORA / MULTA
+360: Rua Marechal José Bernardino Bormann, 1326
+361: Bigorrilho - 80730350 - Curitiba - PR
+362: (=) VALOR PAGO
+363: Sacador / Avalista: Banco C6 SA - CNPJ: 31.872.495/0001-72
+364: Autenticação mecânica - FICHA DE COMPENSAÇÃO
+365: 12 / 12

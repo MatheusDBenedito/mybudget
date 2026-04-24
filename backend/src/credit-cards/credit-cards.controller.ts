@@ -1,0 +1,24 @@
+import { Controller, Get, Post, Body, Patch, Param } from '@nestjs/common';
+import { CreditCardsService } from './credit-cards.service';
+import { CreateCreditCardDto } from './dto/create-credit-card.dto';
+import { UpdateCreditCardDto } from './dto/update-credit-card.dto';
+
+@Controller('credit-cards')
+export class CreditCardsController {
+    constructor(private readonly creditCardsService: CreditCardsService) { }
+
+    @Post()
+    create(@Body() createCreditCardDto: CreateCreditCardDto) {
+        return this.creditCardsService.create(createCreditCardDto);
+    }
+
+    @Get()
+    findAll() {
+        return this.creditCardsService.findAll();
+    }
+
+    @Patch(':id')
+    update(@Param('id') id: string, @Body() updateCreditCardDto: UpdateCreditCardDto) {
+        return this.creditCardsService.update(id, updateCreditCardDto);
+    }
+}
