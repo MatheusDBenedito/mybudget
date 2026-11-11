@@ -1,17 +1,14 @@
 "use client";
 
+import { Money } from "@/components/Money";
+
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-    ChevronLeft,
-    ChevronRight,
-    TrendingUp,
-    TrendingDown,
-    Wallet,
-    ArrowUpCircle,
-    ArrowDownCircle,
-} from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, ChartPie } from "lucide-react";
+import { PageHeader, MonthNavigator } from "@/components/PageHeader";
+import { StatCard } from "@/components/StatCard";
+import { TrendText } from "@/components/ui/trend";
 import {
     PieChart,
     Pie,
@@ -42,7 +39,7 @@ interface Transaction {
 type ApiInvestment = {
     id: string;
     name: string;
-    type: "FIXED_INCOME" | "VARIABLE_INCOME" | "CRYPTO" | "OTHER";
+    type: "FIXED_INCOME" | "VARIABLE_INCOME" | "CRYPTO" | "US_STOCK" | "OTHER";
     investedAmount: number;
     currentValue: number;
     currentPrice?: number;
@@ -55,14 +52,13 @@ const MONTHS = [
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
 
+type TooltipEntry = { name?: string; value?: number; color?: string };
+
 const CHART_COLORS = [
     "#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6",
     "#ec4899", "#06b6d4", "#f97316", "#14b8a6", "#6366f1",
     "#84cc16", "#e11d48", "#0ea5e9", "#d946ef", "#a3e635",
 ];
-
-const formatCurrency = (value: number) =>
-    value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 export default function RelatoriosPage() {
     const now = new Date();
@@ -230,15 +226,17 @@ export default function RelatoriosPage() {
         .reduce((acc, t) => acc + t.amount, 0);
     const variableExpenses = totalExpense - fixedExpenses;
 
-    const CustomTooltip = ({ active, payload }: any) => {
+    const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: TooltipEntry[] }) => {
         if (active && payload && payload.length) {
+            const entry = payload[0];
+            const value = entry.value ?? 0;
             return (
                 <div className="bg-white shadow-lg rounded-lg border p-3">
-                    <p className="text-sm font-medium text-gray-900">{payload[0].name}</p>
-                    <p className="text-sm text-gray-600">{formatCurrency(payload[0].value)}</p>
+                    <p className="text-sm font-medium text-gray-900">{entry.name}</p>
+                    <p className="text-sm text-gray-600"><Money value={value} /></p>
                     {totalExpense > 0 && (
                         <p className="text-xs text-gray-400">
-                            {((payload[0].value / totalExpense) * 100).toFixed(1)}%
+                            {((value / totalExpense) * 100).toFixed(1)}%
                         </p>
                     )}
                 </div>
@@ -247,14 +245,14 @@ export default function RelatoriosPage() {
         return null;
     };
 
-    const BarTooltip = ({ active, payload, label }: any) => {
+    const BarTooltip = ({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string | number }) => {
         if (active && payload && payload.length) {
             return (
                 <div className="bg-white shadow-lg rounded-lg border p-3">
                     <p className="text-sm font-semibold text-gray-900 mb-1">{label}</p>
-                    {payload.map((entry: any, idx: number) => (
+                    {payload.map((entry, idx) => (
                         <p key={idx} className="text-sm" style={{ color: entry.color }}>
-                            {entry.name}: {formatCurrency(entry.value)}
+                            {entry.name}: <Money value={entry.value ?? 0} />
                         </p>
                     ))}
                 </div>
@@ -264,105 +262,58 @@ export default function RelatoriosPage() {
     };
 
     return (
-        <div className="space-y-8">
-            {/* Header */}
-            <div className="flex items-center justify-between flex-wrap gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Relatórios</h1>
-                    <div className="flex items-center gap-3 mt-2">
-                        <button onClick={goToPrevMonth} className="p-1 hover:bg-gray-200 rounded cursor-pointer">
-                            <ChevronLeft className="h-5 w-5 text-gray-600" />
-                        </button>
-                        <span className="text-lg font-medium text-gray-700 min-w-[160px] text-center">
-                            {MONTHS[selectedMonth - 1]} {selectedYear}
-                        </span>
-                        <button onClick={goToNextMonth} className="p-1 hover:bg-gray-200 rounded cursor-pointer">
-                            <ChevronRight className="h-5 w-5 text-gray-600" />
-                        </button>
-                    </div>
-                </div>
-            </div>
+        <div className="space-y-6">
+            <PageHeader
+                title="Relatórios"
+                actions={<MonthNavigator month={selectedMonth} year={selectedYear} onPrev={goToPrevMonth} onNext={goToNextMonth} />}
+            />
 
             {isLoading ? (
-                <div className="flex items-center justify-center h-64">
-                    <p className="text-gray-500 animate-pulse text-lg">Carregando relatórios...</p>
+                <div className="rounded-lg border bg-card p-12 text-center text-muted-foreground animate-pulse">
+                    Carregando relatórios...
                 </div>
             ) : (
                 <>
                     {/* Summary KPIs */}
-                    <div className="grid gap-4 md:grid-cols-4">
-                        <Card className="border-emerald-200 bg-emerald-50/50">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium text-emerald-700">Total Receitas</CardTitle>
-                                <ArrowUpCircle className="h-4 w-4 text-emerald-600" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold text-gray-900">{formatCurrency(totalIncomeWithInvestments)}</div>
-                                <div className="flex flex-wrap gap-2 mt-1">
-                                    <span className="text-xs text-emerald-600">Recebido: {formatCurrency(totalPaidIncome)}</span>
-                                    {totalPendingIncome > 0 && (
-                                        <span className="text-xs text-amber-600">Pendente: {formatCurrency(totalPendingIncome)}</span>
-                                    )}
-                                    {investmentProfit > 0 && (
-                                        <span className="text-xs text-purple-600">Invest.: {formatCurrency(investmentProfit)}</span>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        <Card className="border-red-200 bg-red-50/50">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium text-red-700">Total Despesas</CardTitle>
-                                <ArrowDownCircle className="h-4 w-4 text-red-600" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold text-gray-900">{formatCurrency(totalExpense)}</div>
-                                <div className="flex gap-2 mt-1">
-                                    <span className="text-xs text-red-600">Pago: {formatCurrency(totalPaidExpense)}</span>
-                                    {totalPendingExpense > 0 && (
-                                        <span className="text-xs text-amber-600">Pendente: {formatCurrency(totalPendingExpense)}</span>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        <Card className={`${saldo >= 0 ? "border-blue-200 bg-blue-50/50" : "border-red-200 bg-red-50/50"}`}>
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className={`text-sm font-medium ${saldo >= 0 ? "text-blue-700" : "text-red-700"}`}>
-                                    Saldo do Mês
-                                </CardTitle>
-                                <Wallet className={`h-4 w-4 ${saldo >= 0 ? "text-blue-600" : "text-red-600"}`} />
-                            </CardHeader>
-                            <CardContent>
-                                <div className={`text-2xl font-bold ${saldo >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                                    {formatCurrency(saldo)}
-                                </div>
-                                <p className="text-xs text-gray-500 mt-1">Receitas - Despesas</p>
-                            </CardContent>
-                        </Card>
-
-                        <Card className="border-purple-200 bg-purple-50/50">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium text-purple-700">Fixo vs Variável</CardTitle>
-                                {fixedExpenses >= variableExpenses ? (
-                                    <TrendingDown className="h-4 w-4 text-purple-600" />
-                                ) : (
-                                    <TrendingUp className="h-4 w-4 text-purple-600" />
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                        <StatCard title="Total de receitas" icon={TrendingUp} info="Receitas do mês somadas ao lucro líquido dos investimentos, quando positivo.">
+                            <div className="text-xl font-medium tabular-nums text-positive"><Money value={totalIncomeWithInvestments} /></div>
+                            <dl className="mt-3 space-y-0.5 text-sm">
+                                <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Recebido</dt><dd className="tabular-nums"><Money value={totalPaidIncome} /></dd></div>
+                                {totalPendingIncome > 0 && (
+                                    <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Pendente</dt><dd className="tabular-nums"><Money value={totalPendingIncome} /></dd></div>
                                 )}
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-sm font-bold text-gray-900">
-                                    <span className="text-purple-600">{formatCurrency(fixedExpenses)}</span>
-                                    <span className="text-gray-400 mx-1">/</span>
-                                    <span className="text-indigo-600">{formatCurrency(variableExpenses)}</span>
-                                </div>
-                                <div className="flex gap-2 mt-1">
-                                    <span className="text-xs text-purple-600">Fixas</span>
-                                    <span className="text-xs text-gray-400">/</span>
-                                    <span className="text-xs text-indigo-600">Variáveis</span>
-                                </div>
-                            </CardContent>
-                        </Card>
+                                {investmentProfit > 0 && (
+                                    <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Investimentos</dt><dd className="tabular-nums"><Money value={investmentProfit} /></dd></div>
+                                )}
+                            </dl>
+                        </StatCard>
+
+                        <StatCard title="Total de despesas" icon={TrendingDown}>
+                            <div className="text-xl font-medium tabular-nums text-negative"><Money value={totalExpense} /></div>
+                            <dl className="mt-3 space-y-0.5 text-sm">
+                                <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Pago</dt><dd className="tabular-nums"><Money value={totalPaidExpense} /></dd></div>
+                                {totalPendingExpense > 0 && (
+                                    <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Pendente</dt><dd className="tabular-nums"><Money value={totalPendingExpense} /></dd></div>
+                                )}
+                            </dl>
+                        </StatCard>
+
+                        <StatCard title="Saldo do mês" icon={Wallet} info="Receitas menos despesas do mês selecionado.">
+                            <TrendText value={saldo} label={<Money value={saldo} />} className="text-xl" />
+                            <p className="mt-3 text-sm text-muted-foreground">Receitas − Despesas</p>
+                        </StatCard>
+
+                        <StatCard title="Fixas vs variáveis" icon={ChartPie}>
+                            <dl className="space-y-0.5 text-sm">
+                                <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Fixas</dt><dd className="font-medium tabular-nums"><Money value={fixedExpenses} /></dd></div>
+                                <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Variáveis</dt><dd className="font-medium tabular-nums"><Money value={variableExpenses} /></dd></div>
+                            </dl>
+                            <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-muted" role="img" aria-label="Proporção entre despesas fixas e variáveis">
+                                <div className="bg-foreground" style={{ width: `${totalExpense > 0 ? (fixedExpenses / totalExpense) * 100 : 0}%` }} />
+                                <div className="bg-muted-foreground/40" style={{ width: `${totalExpense > 0 ? (variableExpenses / totalExpense) * 100 : 0}%` }} />
+                            </div>
+                        </StatCard>
                     </div>
 
                     {/* Charts Row: Category Pie + Income Pie */}
@@ -370,7 +321,7 @@ export default function RelatoriosPage() {
                         {/* Expense by Category Pie */}
                         <Card>
                             <CardHeader>
-                                <CardTitle className="text-base font-semibold text-gray-900">
+                                <CardTitle className="text-[15px] font-medium">
                                     Despesas por Categoria
                                 </CardTitle>
                             </CardHeader>
@@ -411,7 +362,7 @@ export default function RelatoriosPage() {
                                                     </div>
                                                     <div className="text-right">
                                                         <span className="text-sm font-semibold text-gray-900">
-                                                            {formatCurrency(cat.total)}
+                                                            <Money value={cat.total} />
                                                         </span>
                                                         <span className="text-xs text-gray-400 ml-2">
                                                             {totalExpense > 0
@@ -432,7 +383,7 @@ export default function RelatoriosPage() {
                         {/* Income by Category Pie */}
                         <Card>
                             <CardHeader>
-                                <CardTitle className="text-base font-semibold text-gray-900">
+                                <CardTitle className="text-[15px] font-medium">
                                     Receitas por Categoria
                                 </CardTitle>
                             </CardHeader>
@@ -473,7 +424,7 @@ export default function RelatoriosPage() {
                                                     </div>
                                                     <div className="text-right">
                                                         <span className="text-sm font-semibold text-gray-900">
-                                                            {formatCurrency(cat.total)}
+                                                            <Money value={cat.total} />
                                                         </span>
                                                         <span className="text-xs text-gray-400 ml-2">
                                                             {totalIncomeWithInvestments > 0
@@ -495,7 +446,7 @@ export default function RelatoriosPage() {
                     {/* Annual Bar Chart */}
                     <Card>
                         <CardHeader>
-                            <CardTitle className="text-base font-semibold text-gray-900">
+                            <CardTitle className="text-[15px] font-medium">
                                 Receitas vs Despesas — {selectedYear}
                             </CardTitle>
                         </CardHeader>
@@ -516,8 +467,8 @@ export default function RelatoriosPage() {
                                                 <span className="text-gray-700">{value}</span>
                                             )}
                                         />
-                                        <Bar dataKey="receitas" name="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} />
-                                        <Bar dataKey="despesas" name="Despesas" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                                        <Bar dataKey="receitas" name="Receitas" fill="#12b886" radius={[4, 4, 0, 0]} />
+                                        <Bar dataKey="despesas" name="Despesas" fill="#f0476a" radius={[4, 4, 0, 0]} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             ) : (
@@ -531,7 +482,7 @@ export default function RelatoriosPage() {
                         {/* Top 5 Expenses */}
                         <Card>
                             <CardHeader>
-                                <CardTitle className="text-base font-semibold text-gray-900">
+                                <CardTitle className="text-[15px] font-medium">
                                     Top 5 Maiores Despesas
                                 </CardTitle>
                             </CardHeader>
@@ -567,8 +518,8 @@ export default function RelatoriosPage() {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <span className="text-sm font-bold text-red-600">
-                                                -{formatCurrency(t.amount)}
+                                            <span className="text-sm font-medium text-negative tabular-nums">
+                                                -<Money value={t.amount} />
                                             </span>
                                         </div>
                                     ))
@@ -581,7 +532,7 @@ export default function RelatoriosPage() {
                         {/* Category Ranking */}
                         <Card>
                             <CardHeader>
-                                <CardTitle className="text-base font-semibold text-gray-900">
+                                <CardTitle className="text-[15px] font-medium">
                                     Ranking de Categorias (Despesas)
                                 </CardTitle>
                             </CardHeader>
@@ -602,7 +553,7 @@ export default function RelatoriosPage() {
                                                         <span className="text-sm font-medium text-gray-700">{cat.name}</span>
                                                     </div>
                                                     <span className="text-sm font-semibold text-gray-900">
-                                                        {formatCurrency(cat.total)}
+                                                        <Money value={cat.total} />
                                                     </span>
                                                 </div>
                                                 <div className="w-full bg-gray-100 rounded-full h-2">

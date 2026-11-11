@@ -22,6 +22,10 @@ export class CreateCardTransactionDto {
 
     @IsOptional()
     @IsUUID()
+    cardHolderId?: string;
+
+    @IsOptional()
+    @IsUUID()
     categoryId?: string;
 
     @IsOptional()

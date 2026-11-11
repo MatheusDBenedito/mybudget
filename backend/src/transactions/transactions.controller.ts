@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Query, Delete } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
@@ -28,5 +28,11 @@ export class TransactionsController {
         @Body() updateTransactionStatusDto: UpdateTransactionStatusDto,
     ) {
         return this.transactionsService.updateStatus(id, updateTransactionStatusDto);
+    }
+
+    /** scope=series removes a fixed lançamento from this month on; default removes only this month. */
+    @Delete(':id')
+    remove(@Param('id') id: string, @Query('scope') scope?: string) {
+        return this.transactionsService.remove(id, scope === 'series' ? 'series' : 'single');
     }
 }

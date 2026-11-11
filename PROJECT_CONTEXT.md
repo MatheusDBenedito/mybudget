@@ -1,0 +1,242 @@
+# Project Context — myBudget (MyFinance)
+
+> Documento de referência arquitetural e operacional para que qualquer LLM consiga ler o estado atual do repositório, entender as regras de negócio e executar planos de implementação com segurança e consistência.
+
+---
+
+## 1. Visão Geral
+
+- **Repositório:** `myBudget` (nome exibido na UI: **MyFinance**)
+- **Propósito:** Aplicação web **single-user** (sem autenticação) para controle financeiro pessoal, contas bancárias (correntes e remuneradas com cofrinhos), cartões de crédito com múltiplos portadores e importação de fatura em PDF, fluxo de caixa projetado, carteira de investimentos (renda fixa, B3, EUA, cripto, outros), programa de milhas/pontos e relatórios.
+- **Idioma da UI e domínio:** Português do Brasil (`pt-BR`), moeda padrão `BRL` (com suporte a `USD` para ações/ETFs americanos e conversão via câmbio).
+
+---
+
+## 2. Stack e Versões
+
+| Camada | Tecnologias |
+|---|---|
+| **Backend** | NestJS 11 (`@nestjs/core` ^11.0.1), TypeScript ^5.7.3, Prisma ORM (`@prisma/client` / `prisma` ^6.19.2), `class-validator`, `class-transformer`, `date-fns`, `pdf-parse` / `pdfjs-dist`, Jest 30 |
+| **Banco de Dados** | PostgreSQL 15 via Docker (`docker-compose.yml`) |
+| **Frontend** | Next.js 16.1.6 (App Router, Turbopack), React 19.2.3, TypeScript ^5, Tailwind CSS v4 (`@tailwindcss/postcss` ^4), shadcn/ui + `radix-ui`, `lucide-react`, `recharts`, `react-hook-form` + `zod`, `react-number-format`, `sonner` |
+| **Testes** | Backend: Jest (`*.spec.ts`) · Frontend unitários: `node --test` (Node 24+ com TS nativo) · E2E: Cypress 15 |
+
+---
+
+## 3. Ambiente Local, Portas e Comandos
+
+### Portas e Serviços
+- **PostgreSQL (Docker):** `localhost:5432` (`budget_db`, usuário/senha locais definidos em `docker-compose.yml` e `.env.example`)
+- **Backend (NestJS):** `http://localhost:3333` (`backend/src/main.ts`, CORS habilitado globalmente, `ValidationPipe({ whitelist: true, transform: true })`)
+- **Frontend (Next.js):** `http://localhost:3000`
+
+### Variáveis de Ambiente
+- O backend carrega `../.env` (raiz do repositório) no `main.ts` e o Prisma lê `DATABASE_URL` via `backend/prisma.config.ts` e `backend/.env`.
+- Variáveis esperadas (ver `.env.example`):
+  - `DATABASE_URL`
+  - `BRAPI_TOKEN` (usado para cotações de ações/FIIs da B3 na `brapi.dev` e fallback de ações US)
+- **Atenção:** No frontend, a URL da API (`const API = "http://localhost:3333"`) está definida diretamente nos arquivos de páginas/helpers (`frontend/src/app/**/page.tsx`, `frontend/src/lib/dashboard-layout-api.ts`, etc.), sem `NEXT_PUBLIC_*`.
+
+### Comandos Essenciais
+```powershell
+# 1. Subir banco PostgreSQL
+docker compose up -d
+
+# 2. Backend (diretório backend/)
+npm run start:dev          # servidor em watch mode na porta 3333
+npm run build              # build NestJS
+npm test                   # Jest (ver nota na seção 8 sobre specs boilerplate)
+npx prisma migrate dev     # criar/aplicar migrations
+npx prisma generate        # atualizar Prisma Client após alterar schema.prisma
+
+# 3. Frontend (diretório frontend/)
+npm run dev                # Next.js dev server na porta 3000
+npm run build              # build de produção Next.js
+npm run lint               # ESLint
+node --test src/lib/*.test.ts   # testes unitários das funções puras (84 testes)
+npm run cypress:run        # testes E2E (requer servidores rodando)
+```
+
+---
+
+## 4. Estrutura do Repositório
+
+```text
+myBudget/
+├── docker-compose.yml              # Serviço Postgres 15 (porta 5432)
+├── .env.example                    # DATABASE_URL, BRAPI_TOKEN
+├── backend/
+│   ├── prisma/
+│   │   ├── schema.prisma           # Schema completo do banco
+│   │   └── migrations/             # Histórico de migrations (Prisma 6)
+│   └── src/
+│       ├── main.ts                 # Bootstrap NestJS (porta 3333, dotenv ../.env)
+│       ├── app.module.ts           # Registro de todos os módulos
+│       ├── prisma/                 # PrismaService global
+│       ├── common/helpers/
+│       │   └── penny-pinching.helper.ts  # distributeInstallments()
+│       ├── accounts/               # Contas, transferências, ajustes, yields e cofrinhos
+│       ├── transactions/           # Receitas/despesas em conta + projeção de fixas
+│       ├── recurring-expenses/     # Despesas recorrentes legadas/auxiliares
+│       ├── credit-cards/           # Cartões, cartão principal e calculateInvoiceDate()
+│       ├── card-holders/           # Portadores (titular/adicionais) por cartão
+│       ├── card-transactions/      # Compras no cartão, parcelamento, estorno, import PDF
+│       ├── cash-flow/              # Agregação mensal/anual do fluxo de caixa
+│       ├── investments/            # Renda fixa (CDI/IR), B3, US Stocks, Cripto, Outros
+│       ├── miles/                  # Lançamentos de pontos/milhas
+│       ├── reports/                # Gastos por categoria e evolução mensal
+│       ├── dashboard-layout/       # Persistência do layout customizável do Resumo
+│       └── seed/                   # Wipe + seed inicial (POST /seed)
+└── frontend/
+    ├── cypress/e2e/                # cartoes.cy.ts, dashboard.cy.ts, transaction_modal.cy.ts
+    └── src/
+        ├── app/
+        │   ├── layout.tsx          # Layout raiz, script anti-flash do modo privacidade, footer
+        │   ├── globals.css         # Tokens semânticos (Investidor10-style) e blur de privacidade
+        │   ├── page.tsx            # Resumo (Dashboard com grid editável)
+        │   ├── fluxo-de-caixa/     # Planilha de fluxo de caixa e lançamentos do mês
+        │   ├── investimentos/      # Carteira, modal de aporte, projeção renda fixa
+        │   ├── cartoes/            # Faturas por mês/cartão/portador, import PDF, estornos
+        │   ├── milhas/             # Saldo por programa, estimativa por cartão, calculadora bônus
+        │   ├── relatorios/         # Gráficos e análises
+        │   └── configuracoes/      # Contas, cofrinhos, transferências, cartões, categorias
+        ├── components/
+        │   ├── ui/                 # Primitivos shadcn/Radix + currency-input + trend
+        │   ├── dashboard/          # DashboardGrid, DashCard, ForecastCard, BillsCard, etc.
+        │   ├── cash-flow/          # CashFlowSheet, MonthTransactions, Settle/Delete dialogs
+        │   ├── cards/              # InvoiceGroupSection
+        │   ├── miles/              # CardPointsEstimate, MilesEntriesTable, TransferBonusCalculator
+        │   └── *.tsx               # AppHeader, Money, Panel, StatCard, AccountManager, YieldPots, etc.
+        └── lib/
+            ├── *.ts                # Funções puras testáveis + format.ts, charts.ts, privacy.tsx
+            └── *.test.ts           # Suítes `node --test`
+```
+
+---
+
+## 5. Modelo de Dados (`backend/prisma/schema.prisma`)
+
+### Enums
+- `TransactionType`: `INCOME | EXPENSE | TRANSFER`
+- `TransactionStatus`: `PENDING | PAID | CANCELLED`
+- `AccountType`: `CHECKING | YIELDING`
+- `InvestmentType`: `FIXED_INCOME | VARIABLE_INCOME | CRYPTO | US_STOCK | OTHER`
+- `MilesStatus`: `PENDING | TRANSFERRED | CREDITED`
+
+### Models e Relações Principais
+1. **`Account`**: `name`, `balance` (`Float`), `type` (`CHECKING` default | `YIELDING`), `cdiPercentage` (`Float?`), `yieldSince` (`DateTime?`). Relaciona com `Transaction[]`, `CreditCard[]`, `RecurringExpense[]`, `YieldPot[]`, `AccountYield[]`, `BalanceAdjustment[]`, `AccountTransfer[]` (`TransfersOut` / `TransfersIn`).
+2. **`YieldPot`** ("cofrinho"): pertence a `Account` (`onDelete: Cascade`), possui `name`, `cdiPercentage`, `balance` (já embutido no `Account.balance`), e `PotMovement[]` (`amount`, `kind`: `"transfer" | "adjustment"`, `date`).
+3. **`AccountYield`**: rendimento diário creditado por conta, `bucket` (`"main"` para saldo livre ou `pot.id`), e `date` (`@db.Date`) com `@@unique([accountId, bucket, date])`. Registra `cdiDailyRate`, `cdiPercentage`, `balanceBefore`, `grossAmount`, `irRate`, `taxAmount`, `netAmount`, `taxRefund`.
+4. **`BalanceAdjustment`**: histórico datado de ajustes manuais de saldo em `Account` (`amount`, `date`) para cálculo retroativo correto de rendimentos em lotes.
+5. **`AccountTransfer`**: transferência entre contas (`fromAccountId`, `toAccountId`, `amount`, `date`, `description`). Não é receita nem despesa.
+6. **`Category`**: `name`, `color?`, `icon?`. Relaciona com `Transaction`, `CardTransaction`, `RecurringExpense`.
+7. **`Transaction`**: `description`, `amount`, `date`, `type`, `status`, `isFixed`, `fixedUntil` (`DateTime?` — encerra projeção futura sem apagar histórico), `accountId`, `categoryId?`.
+8. **`CreditCard`**: `name`, `limit`, `invoiceClosingOffset` (`Int`, default 7 dias antes do vencimento), `dueDay` (`Int`, 1–31), `color?`, `pointsPerDollar?`, `loyaltyProgram?`, `isPrimary` (`Boolean`), `accountId`. Relaciona com `CardHolder[]`, `CardTransaction[]`, `MilesEntry[]`.
+9. **`CardHolder`**: portador do cartão (`creditCardId`, `name`, `last4?`, `isMain`), `@@unique([creditCardId, name])`. Titular e adicionais compartilham limite e fatura.
+10. **`CardTransaction`**: `description`, `amount` (positivo para compra, negativo para estorno), `date` (data da compra), `invoiceDate` (data de vencimento da fatura calculada), `installments`, `isFixed`, `ignoredInvoices` (lista de `"YYYY-MM"` ignorados na projeção fixa), `installmentGroupId?`, `creditCardId`, `cardHolderId` (`onDelete: Restrict`), `categoryId?`.
+11. **`RecurringExpense`**: modelo de recorrência em conta (`description`, `amount`, `billingDay`, `isActive`, `accountId`, `categoryId?`).
+12. **`Investment`**: `name`, `type`, `investedAmount`, `currentValue`, `investmentDate?`, `cdiPercentage?`, `sector?`, `tickerCode?`, `averagePrice?`, `currentPrice?`, `quantity?`, `purchaseExchangeRate?` (para `US_STOCK`).
+13. **`MilesEntry`**: `program`, `points`, `status`, `expectedCreditDate`, `creditCardId?` (`onDelete: SetNull`), `origin?`, `referenceMonth?`, `referenceYear?`, `notes?`.
+14. **`DashboardLayout`**: singleton (`id = "default"`), `items` (`Json` com ordem e largura dos blocos do Resumo).
+
+---
+
+## 6. Mapeamento da API REST (Backend — porta `3333`)
+
+- **App / Seed / Layout / Reports:**
+  - `GET /` (`AppController`)
+  - `POST /seed` (`SeedController` — **atenção: apaga dados existentes antes de popular**)
+  - `GET /dashboard-layout`, `PUT /dashboard-layout`
+  - `GET /reports/expenses-by-category`, `GET /reports/monthly-evolution`
+- **Accounts, Yields, Pots & Transfers (`AccountsController` — `/accounts`):**
+  - `GET /accounts`, `POST /accounts`, `GET /accounts/:id`, `PATCH /accounts/:id`, `DELETE /accounts/:id`
+  - `PATCH /accounts/:id/free-balance`
+  - `POST /accounts/yields/accrue`, `POST /accounts/:id/yields/recompute`, `GET /accounts/:id/yields`, `GET /accounts/:id/lots`
+  - `GET /accounts/:id/pots`, `POST /accounts/:id/pots`, `PATCH /accounts/pots/:potId`, `DELETE /accounts/pots/:potId`
+  - `POST /accounts/pots/:potId/deposit`, `POST /accounts/pots/:potId/withdraw`, `POST /accounts/pots/:potId/adjust`
+  - `GET /accounts/transfers`, `POST /accounts/transfers`, `DELETE /accounts/transfers/:transferId`
+- **Transactions & Recurring (`TransactionsController`, `RecurringExpensesController`):**
+  - `GET /transactions`, `POST /transactions`, `PATCH /transactions/:id/status`, `DELETE /transactions/:id`
+  - `POST /recurring-expenses`, `POST /recurring-expenses/process-monthly`
+- **Cash Flow (`CashFlowController`):**
+  - `GET /cash-flow`
+- **Categories (`CategoriesController`):**
+  - `GET /categories`, `POST /categories`, `PATCH /categories/:id`, `DELETE /categories/:id`
+- **Credit Cards, Holders & Card Transactions:**
+  - `GET /credit-cards`, `POST /credit-cards`, `PATCH /credit-cards/:id`, `PATCH /credit-cards/:id/primary`
+  - `GET /credit-cards/:creditCardId/holders`, `POST /credit-cards/:creditCardId/holders`, `PATCH /credit-cards/:creditCardId/holders/:id`, `DELETE /credit-cards/:creditCardId/holders/:id`
+  - `POST /card-transactions`, `POST /card-transactions/preview`, `POST /card-transactions/:id/estorno`, `PATCH /card-transactions/:id`, `DELETE /card-transactions/:id`
+  - `GET /card-transactions/summary/invoice`, `GET /card-transactions/:creditCardId/invoice`
+  - `POST /card-transactions/import-pdf`, `POST /card-transactions/import-pdf/debug`, `POST /card-transactions/import-pdf/confirm`
+- **Investments & Miles:**
+  - `GET /investments`, `POST /investments`, `GET /investments/:id`, `PATCH /investments/:id`, `DELETE /investments/:id`
+  - `GET /miles`, `POST /miles`, `PATCH /miles/:id`, `DELETE /miles/:id`
+
+---
+
+## 7. Regras de Negócio e Invariantes Críticas
+
+Qualquer plano executado neste projeto deve preservar estas regras:
+
+1. **Contas, Saldos e Rendimentos (`accounts`):**
+   - `Account.balance` representa o **saldo total** da conta (saldo livre + soma dos `YieldPot.balance`). `freeBalance = balance - sum(pots.balance)`.
+   - Contas `CHECKING` nunca têm `cdiPercentage` nem `yieldSince`. Contas `YIELDING` exigem `cdiPercentage > 0` e passam a render a partir de `yieldSince` (sem retroativo anterior à ativação).
+   - `AccountYieldService` roda na inicialização (`OnModuleInit`) e a cada hora (`ACCRUAL_INTERVAL_MS = 1h`), consumindo CDI diário da **série 12 do BCB**. É idempotente via `@@unique([accountId, bucket, date])`.
+   - Cálculo de rendimento (`account-yield.calculator.ts`): cada aporte cria um **lote** com data própria; retiradas consomem os lotes mais antigos (**PEPS/FIFO**); IR segue a tabela regressiva brasileira por dias corridos (`<=180: 22.5%`, `<=360: 20%`, `<=720: 17.5%`, `>720: 15%`), e IR já retido em dias anteriores não é estornado ao mudar de faixa.
+   - `AccountTransfer` e `BalanceAdjustment` apenas movem/ajustam saldo e lotes; **nunca** entram como receita/despesa no fluxo de caixa ou relatórios.
+   - Ao liquidar despesas no frontend (`defaultSettlementAccount`), priorizar contas `CHECKING` para evitar mexer em saldo que rende CDI.
+
+2. **Transações em Conta (`transactions`):**
+   - Ao criar sem `status`, `TransactionsService.create` define `PAID` se `date <= fim de hoje`, senão `PENDING`. Apenas transações `PAID` alteram `Account.balance`.
+   - Transações com `isFixed: true` são projetadas para meses futuros quando consultadas por mês, respeitando `fixedUntil` (quando encerrada) e evitando duplicação caso já haja registro correspondente no mês.
+
+3. **Cartões de Crédito e Faturas (`credit-cards`, `card-transactions`, `card-holders`):**
+   - **Data da fatura (`calculateInvoiceDate`):** o fechamento é `dueDay - invoiceClosingOffset` dias no mês (limitado ao último dia válido do mês). Compras **no dia ou após o fechamento** vão para a fatura do mês seguinte.
+   - **Parcelamento sem perda de centavos (`distributeInstallments`):** converte para centavos e distribui o resto nas primeiras parcelas. Gera `N` registros flat de `CardTransaction` ligados por `installmentGroupId`, avançando a data simulada mês a mês.
+   - **Fixos no cartão:** usam `isFixed: true` e `ignoredInvoices` (meses `"YYYY-MM"` suprimidos).
+   - **Agrupamento na UI (`groupInvoice`):** separa sempre em **Fixos** (primeiro), **Parcelados** e **À vista** (estornos negativos permanecem em À vista).
+   - **Portadores (`CardHolder`):** toda `CardTransaction` referencia um `cardHolderId` (`onDelete: Restrict`).
+   - **Importação PDF (`PdfParserService`):** usa `pdfjs-dist` (suporta senha), pula linhas com keywords de crédito/pagamento/estorno (`SKIP_KEYWORDS`), sugere categorias e passa por preview/confirm antes de gravar.
+
+4. **Fluxo de Caixa (`cash-flow/cash-flow.builder.ts`):**
+   - Ignora transações com `status === 'CANCELLED'` ou `type === 'TRANSFER'`.
+   - Organiza em 4 seções: `INCOME` (Recebimentos), `FIXED` (Contas fixas), `CARDS` (Cartões de crédito) e `VARIABLE` (Outras despesas).
+   - Distingue valores planejados (`values`) de valores ainda em aberto (`open`). Para faturas de cartão, não há flag `PAID` dedicada: `isCardInvoiceOpen` considera a fatura quitada após passar o `dueDay` daquele mês.
+   - `projectedBalance` carrega o saldo atual (`openingBalance`) mês a mês usando `leadIn` e retorna `null` para meses já fechados.
+
+5. **Investimentos e Fontes Externas (`investments.service.ts`):**
+   - **Renda Fixa (`FIXED_INCOME`):** usa série histórica do CDI (BCB série 12, cache 1h, fallback `14.9%` a.a. / 252 dias úteis) e aplica tabela regressiva de IR por dias corridos.
+   - **B3 (`VARIABLE_INCOME`):** cotações via `brapi.dev` (requer `BRAPI_TOKEN`; plano gratuito exige 1 ticker por requisição com intervalo sequencial `300ms` e cache de 20 min).
+   - **EUA (`US_STOCK`):** cotações em USD via Yahoo Finance (primário) com fallback `brapi.dev` (cache 15 min) + câmbio `USD-BRL` via AwesomeAPI (cache 5 min). Calcula `currentValue` em BRL e separa `assetGainBrl` vs `fxGainBrl`.
+   - **Cripto (`CRYPTO`):** cotações em BRL via CoinGecko (cache 5 min, mapa `COINGECKO_ID_MAP`).
+
+6. **Milhas e Layout do Dashboard:**
+   - **Milhas:** calcula estimativa de pontos por fatura usando `pointsPerDollar` do cartão e controla pipeline `PENDING -> TRANSFERRED -> CREDITED` + calculadora de bônus de transferência (`frontend/src/lib/miles.ts`).
+   - **Dashboard Layout:** blocos disponíveis (`forecast`, `bills`, `moneywhere`, `cards`, `spending`, `cashflow-chart`, `investments-chart`) com larguras permitidas `[4, 6, 8, 12]`. `normalizeLayout()` garante preservação de ordem, remoção de duplicatas/inválidos e inclusão automática de novos blocos. Persiste em `DashboardLayout` (`PUT /dashboard-layout`) com cache local (`mybudget:dashboard-layout:v1`).
+
+---
+
+## 8. Convenções de Código, UI e Testes
+
+- **Lógica pura testável sem framework:**
+  - No backend, manter cálculos puros em helpers/builders sem importar Prisma ou NestJS (ex.: `penny-pinching.helper.ts`, `invoice-calculator.helper.ts`, `account-yield.calculator.ts`, `cash-flow.builder.ts`), testados em `__tests__/*.spec.ts`.
+  - No frontend, manter regras puras em `frontend/src/lib/*.ts` **sem React, APIs de browser ou path aliases `@/`**, importando com extensão `.ts` (`allowImportingTsExtensions: true`), para rodar diretamente com `node --test src/lib/*.test.ts`.
+- **UI e Design System (`frontend/src/app/globals.css`, `layout.tsx`):**
+  - Estética inspirada no Investidor10: header escuro (`--header: #1c1f24`), fundo neutro (`--background: #f1f2f4`), cards brancos (`--card: #ffffff`), bordas sutis (`--border: #e3e5e9`).
+  - Usar tokens semânticos de cor (`text-positive`, `bg-positive-soft`, `bg-positive-fill` para gráficos/barras; `text-negative`, `bg-negative-soft`, `bg-negative-fill`; `text-asset-icon`).
+  - **Modo Privacidade (olho no header):** valores monetários devem usar o componente `<Money />` ou a classe `.privacy-value`, controlada por `data-privacy="on"` no `<html>` (persistido em `localStorage` `myfinance:privacy`), aplicando `blur(6px)` sem deslocar layout.
+  - Formatação pt-BR centralizada em `frontend/src/lib/format.ts` (`formatCurrency`, `formatUsd`, `formatRate`, `formatPercent`, `formatDate`, `MONTH_NAMES`).
+- **Atenção ao rodar testes no Backend:**
+  - `cd frontend && node --test src/lib/*.test.ts` passa integralmente (84/84 testes verificados).
+  - `cd backend && npm test` executa todos os `*.spec.ts`, incluindo arquivos boilerplate gerados pelo Nest CLI (`*.controller.spec.ts`, `*.service.spec.ts` sem providers mockados) que atualmente falham por injeção de dependência não configurada; para validar módulos específicos ou lógica pura no backend, rode `npx jest <caminho-do-spec>` (e verifique `invoice-calculator.spec.ts` caso altere lógica de faturas).
+
+---
+
+## 9. Checklist Rápido para outra LLM ao Executar Planos
+
+1. **Antes de editar schema:** ler `backend/prisma/schema.prisma`; após alterar, gerar/aplicar migration (`npx prisma migrate dev`) ou garantir sync com `prisma generate` e reiniciar/verificar backend.
+2. **Antes de alterar regras de negócio:** checar os helpers puros correspondentes (`backend/src/**/helpers`, `account-yield.calculator.ts`, `cash-flow.builder.ts`, `frontend/src/lib/*.ts`) e seus testes unitários.
+3. **Datas:** atenção a fuso horário (UTC vs local) — datas de operação no backend costumam usar local noon ou chaves `yyyy-mm-dd` (`toDateKey`); no frontend, datas ISO vindas da API usam `fromApiDate` quando aplicável.
+4. **Endpoints no frontend:** lembrar que `http://localhost:3333` está referenciado diretamente nos arquivos do frontend; manter consistência ou centralizar se o plano pedir.
+5. **Validação final:** rodar `node --test src/lib/*.test.ts` e `npm run build` / `npm run lint` no frontend, e `npm run build` + `npx jest` nos specs afetados do backend.
+

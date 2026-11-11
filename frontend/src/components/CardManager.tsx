@@ -14,6 +14,8 @@ type ApiCard = {
     invoiceClosingOffset: number;
     dueDay: number;
     color?: string; // Opt
+    pointsPerDollar?: number | null;
+    loyaltyProgram?: string | null;
 };
 
 export function CardManager() {
@@ -56,7 +58,7 @@ export function CardManager() {
                 </div>
 
                 <CreateCardModal onSuccess={loadCards}>
-                    <Button className="bg-emerald-600 hover:bg-emerald-700">
+                    <Button>
                         <PlusCircle className="mr-2 h-4 w-4" />
                         Novo Cartão
                     </Button>
@@ -102,6 +104,14 @@ export function CardManager() {
                                 <div>
                                     <span className="block font-medium mb-1">VENCIMENTO</span>
                                     <span className="text-sm text-white">Dia {card.dueDay}</span>
+                                </div>
+                                <div>
+                                    <span className="block font-medium mb-1">PONTOS</span>
+                                    <span className="text-sm text-white">
+                                        {card.pointsPerDollar
+                                            ? `${card.pointsPerDollar.toLocaleString("pt-BR")} pts/US$${card.loyaltyProgram ? ` · ${card.loyaltyProgram}` : ""}`
+                                            : "Não pontua"}
+                                    </span>
                                 </div>
                             </div>
                         </div>

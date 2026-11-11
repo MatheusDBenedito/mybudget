@@ -1,5 +1,7 @@
+import { Money } from "@/components/Money";
 import { useState, useEffect } from "react";
-import { PlusCircle, Building2, Pencil, Trash2 } from "lucide-react";
+import { PlusCircle, Building2, Pencil, Trash2, ArrowLeftRight, ArrowRight, Undo2 } from "lucide-react";
+import { TransferDialog } from "@/components/TransferDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -20,6 +22,8 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CurrencyInput } from "@/components/ui/currency-input";
+import { type AccountType, ACCOUNT_TYPE_LABELS, isYielding, yieldLabel } from "@/lib/accounts";
+import { type ApiPot, YieldPots } from "@/components/YieldPots";
 
 const formatBRL = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -32,14 +36,37 @@ type ApiAccount = {
     id: string;
     name: string;
     balance: number;
+    type: AccountType;
+    cdiPercentage: number | null;
+    /** Net yield credited this month (yielding accounts) */
+    monthYield?: number;
+    /** Balance outside the cofrinhos */
+    freeBalance?: number;
+    freeMonthYield?: number;
+    pots?: ApiPot[];
 };
 
 const accountSchema = z.object({
-    name: z.string().min(2, "Nome da conta deve ter pelo menos 2 caracteres."),
+    name: z.string().trim().min(2, "Nome da conta deve ter pelo menos 2 caracteres."),
     balance: z.number({ message: "Insira um valor numérico válido." }),
+    type: z.enum(["CHECKING", "YIELDING"]),
+    cdiPercentage: z.number().optional(),
+}).superRefine((data, ctx) => {
+    if (data.type === "YIELDING" && !(data.cdiPercentage && data.cdiPercentage > 0)) {
+        ctx.addIssue({ code: "custom", message: "Informe quanto a conta rende (% do CDI).", path: ["cdiPercentage"] });
+    }
 });
 
 type AccountData = z.infer<typeof accountSchema>;
+
+type ApiTransfer = {
+    id: string;
+    amount: number;
+    date: string;
+    description: string | null;
+    fromAccount: { id: string; name: string };
+    toAccount: { id: string; name: string };
+};
 
 export function AccountManager() {
     const [accounts, setAccounts] = useState<ApiAccount[]>([]);
@@ -53,22 +80,49 @@ export function AccountManager() {
     // Delete mode
     const [accountToDelete, setAccountToDelete] = useState<{ id: string, name: string } | null>(null);
 
+    const [transfers, setTransfers] = useState<ApiTransfer[]>([]);
+    const [transferToUndo, setTransferToUndo] = useState<ApiTransfer | null>(null);
+
+    const undoTransfer = async () => {
+        if (!transferToUndo) return;
+        try {
+            const res = await fetch(`http://localhost:3333/accounts/transfers/${transferToUndo.id}`, { method: "DELETE" });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message ?? "Erro ao desfazer.");
+            }
+            await fetchAccounts(true);
+            toast.success("Transferência desfeita: o valor voltou para a conta de origem.");
+        } catch (error) {
+            toast.error((error as Error).message);
+        } finally {
+            setTransferToUndo(null);
+        }
+    };
+
     const form = useForm<AccountData>({
         resolver: zodResolver(accountSchema),
         defaultValues: {
             name: "",
             balance: 0,
+            type: "CHECKING",
+            cdiPercentage: undefined,
         },
     });
+    const watchType = form.watch("type");
 
-    const fetchAccounts = async () => {
-        setIsLoading(true);
+    const fetchAccounts = async (silent = false) => {
+        if (!silent) setIsLoading(true);
         try {
-            const res = await fetch("http://localhost:3333/accounts");
+            const [res, transfersRes] = await Promise.all([
+                fetch("http://localhost:3333/accounts"),
+                fetch("http://localhost:3333/accounts/transfers"),
+            ]);
             if (res.ok) {
                 const data = await res.json();
                 setAccounts(data);
             }
+            if (transfersRes.ok) setTransfers(await transfersRes.json());
         } catch (error) {
             console.error("Failed to fetch accounts:", error);
         } finally {
@@ -82,13 +136,18 @@ export function AccountManager() {
 
     const openCreateDialog = () => {
         setEditingAccount(null);
-        form.reset({ name: "", balance: 0 });
+        form.reset({ name: "", balance: 0, type: "CHECKING", cdiPercentage: undefined });
         setIsDialogOpen(true);
     };
 
     const openEditDialog = (account: ApiAccount) => {
         setEditingAccount(account);
-        form.reset({ name: account.name, balance: account.balance });
+        form.reset({
+            name: account.name.trim(),
+            balance: account.balance,
+            type: account.type ?? "CHECKING",
+            cdiPercentage: account.cdiPercentage ?? undefined,
+        });
         setIsDialogOpen(true);
     };
 
@@ -104,7 +163,10 @@ export function AccountManager() {
             const res = await fetch(url, {
                 method,
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(data),
+                body: JSON.stringify({
+                    ...data,
+                    cdiPercentage: data.type === "YIELDING" ? data.cdiPercentage : null,
+                }),
             });
 
             if (res.ok) {
@@ -160,9 +222,16 @@ export function AccountManager() {
                     <p className="text-sm text-gray-500">Cadastre suas contas correntes ou carteiras físicas.</p>
                 </div>
 
+                <div className="flex gap-2">
+                <TransferDialog accounts={accounts} onSuccess={() => fetchAccounts(true)}>
+                    <Button variant="outline" disabled={accounts.length < 2}>
+                        <ArrowLeftRight className="mr-2 h-4 w-4" />
+                        Transferir
+                    </Button>
+                </TransferDialog>
                 <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                     <DialogTrigger asChild>
-                        <Button onClick={openCreateDialog} className="bg-emerald-600 hover:bg-emerald-700">
+                        <Button onClick={openCreateDialog}>
                             <PlusCircle className="mr-2 h-4 w-4" />
                             Nova Conta
                         </Button>
@@ -204,6 +273,64 @@ export function AccountManager() {
                                 <p className="text-xs text-gray-500">Você pode ajustar o saldo inicial para bater com sua conta de banco real.</p>
                             </div>
 
+                            <fieldset className="space-y-2">
+                                <legend className="mb-2 text-sm font-medium">Tipo de conta</legend>
+                                <Controller
+                                    control={form.control}
+                                    name="type"
+                                    render={({ field }) => (
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {(["CHECKING", "YIELDING"] as const).map(option => (
+                                                <label
+                                                    key={option}
+                                                    className={`flex cursor-pointer flex-col gap-0.5 rounded-lg border p-3 text-sm transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring ${field.value === option ? "border-foreground bg-muted/50" : "hover:bg-muted/40"}`}
+                                                >
+                                                    <span className="flex items-center gap-2 font-medium">
+                                                        <input
+                                                            type="radio"
+                                                            name="account-type"
+                                                            value={option}
+                                                            checked={field.value === option}
+                                                            onChange={() => field.onChange(option)}
+                                                            className="h-4 w-4 accent-foreground"
+                                                        />
+                                                        {ACCOUNT_TYPE_LABELS[option]}
+                                                    </span>
+                                                    <span className="pl-6 text-xs text-muted-foreground">
+                                                        {option === "CHECKING" ? "Não rende. Usada primeiro nos pagamentos." : "Rende um % do CDI (ex: Mercado Pago)."}
+                                                    </span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                />
+                            </fieldset>
+
+                            {watchType === "YIELDING" && (
+                                <div className="space-y-2">
+                                    <Label htmlFor="cdiPercentage">Rendimento (% do CDI)</Label>
+                                    <Controller
+                                        control={form.control}
+                                        name="cdiPercentage"
+                                        render={({ field }) => (
+                                            <Input
+                                                id="cdiPercentage"
+                                                type="number"
+                                                inputMode="decimal"
+                                                min={0}
+                                                step="0.5"
+                                                placeholder="Ex: 100"
+                                                value={field.value ?? ""}
+                                                onChange={(e) => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+                                            />
+                                        )}
+                                    />
+                                    {form.formState.errors.cdiPercentage && (
+                                        <p className="text-xs text-red-500">{form.formState.errors.cdiPercentage.message}</p>
+                                    )}
+                                </div>
+                            )}
+
                             <DialogFooter className="mt-6">
                                 <Button type="submit" className="w-full sm:w-auto" disabled={isSaving}>
                                     {isSaving ? "Salvando..." : "Salvar Conta"}
@@ -212,6 +339,7 @@ export function AccountManager() {
                         </form>
                     </DialogContent>
                 </Dialog>
+                </div>
             </div>
 
             {isLoading ? (
@@ -222,7 +350,7 @@ export function AccountManager() {
                 <div className="p-12 text-center text-gray-400 bg-slate-50 border border-dashed rounded-lg">
                     <Building2 className="mx-auto h-12 w-12 text-gray-300 mb-3" />
                     <p>Nenhuma conta cadastrada.</p>
-                    <p className="text-sm mt-1">Clique em "Nova Conta" para começar.</p>
+                    <p className="text-sm mt-1">Clique em &ldquo;Nova Conta&rdquo; para começar.</p>
                 </div>
             ) : (
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -236,7 +364,9 @@ export function AccountManager() {
                                         </div>
                                         <div>
                                             <h4 className="font-semibold text-gray-900">{acc.name}</h4>
-                                            <p className="text-sm text-gray-500 mt-1">Saldo Atual</p>
+                                            <span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${isYielding(acc) ? "bg-positive-soft text-positive" : "bg-muted text-muted-foreground"}`}>
+                                                {isYielding(acc) ? yieldLabel(acc) : ACCOUNT_TYPE_LABELS.CHECKING}
+                                            </span>
                                         </div>
                                     </div>
 
@@ -250,23 +380,83 @@ export function AccountManager() {
                                     </div>
                                 </div>
 
-                                <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+                                <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-baseline justify-between gap-2">
                                     <span className="text-2xl font-bold tracking-tight text-gray-900">
-                                        {formatBRL(acc.balance)}
+                                        <Money value={acc.balance} />
                                     </span>
+                                    {isYielding(acc) && (
+                                        <span className="text-xs text-muted-foreground" title="Rendimento líquido (já descontado o IR) creditado diariamente neste mês">
+                                            Rendeu <span className="font-medium text-positive tabular-nums">+<Money value={acc.monthYield ?? 0} /></span> no mês
+                                        </span>
+                                    )}
                                 </div>
+                                {isYielding(acc) && (
+                                    <>
+                                        <p className="mt-1 text-[11px] text-muted-foreground">Rendimento líquido creditado a cada dia útil.</p>
+                                        <YieldPots account={acc} onChanged={() => fetchAccounts(true)} />
+                                    </>
+                                )}
                             </CardContent>
                         </Card>
                     ))}
                 </div>
             )}
 
+            {transfers.length > 0 && (
+                <section aria-labelledby="transfers-title" className="space-y-2">
+                    <h4 id="transfers-title" className="text-sm font-medium text-gray-900">Transferências recentes</h4>
+                    <ul className="divide-y rounded-lg border bg-card">
+                        {transfers.map(t => (
+                            <li key={t.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2.5 text-sm">
+                                <div className="min-w-0">
+                                    <p className="flex flex-wrap items-center gap-1.5 font-medium">
+                                        {t.fromAccount.name.trim()}
+                                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" aria-label="para" />
+                                        {t.toAccount.name.trim()}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        {new Date(t.date).toLocaleDateString("pt-BR")}{t.description ? ` · ${t.description}` : ""}
+                                    </p>
+                                </div>
+                                <div className="ml-auto flex items-center gap-2">
+                                    <span className="font-medium tabular-nums"><Money value={t.amount} /></span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTransferToUndo(t)}
+                                        className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-600"
+                                        title="Desfazer"
+                                        aria-label={`Desfazer transferência de ${formatBRL(t.amount)}`}
+                                    >
+                                        <Undo2 className="h-4 w-4" />
+                                    </button>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+
+            <AlertDialog open={!!transferToUndo} onOpenChange={(open) => !open && setTransferToUndo(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Desfazer transferência</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {transferToUndo && <><Money value={transferToUndo.amount} /> voltam de {transferToUndo.toAccount.name.trim()} para {transferToUndo.fromAccount.name.trim()}.</>}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={undoTransfer}>Desfazer</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
             <AlertDialog open={!!accountToDelete} onOpenChange={(open) => !open && setAccountToDelete(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Excluir Conta</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Tem certeza que deseja apagar a conta "{accountToDelete?.name}"? Esta ação só será permitida se não houver registros vinculados.
+                            Tem certeza que deseja apagar a conta &ldquo;{accountToDelete?.name}&rdquo;? Esta ação só será permitida se não houver registros vinculados.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

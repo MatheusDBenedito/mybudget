@@ -49,12 +49,14 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { holdersOf, mainHolder } from "@/lib/credit-cards";
 
 const cardTransactionSchema = z.object({
     description: z.string().min(3, "A descrição deve ter pelo menos 3 caracteres."),
     amount: z.number({ message: "Insira um valor válido." }).positive("O valor deve ser maior que zero."),
     categoryId: z.string().optional(),
     creditCardId: z.string().min(1, "Selecione um cartão de crédito."),
+    cardHolderId: z.string().optional(),
     installments: z.number({ message: "Insira um valor válido." }).min(1),
     date: z.date({ message: "A data da compra é obrigatória." }),
     isFixed: z.boolean(),
@@ -67,15 +69,24 @@ type ApiCategory = {
     color: string | null;
 };
 
+type ApiCardHolder = {
+    id: string;
+    name: string;
+    last4?: string | null;
+    isMain: boolean;
+};
+
 type ApiCreditCard = {
     id: string;
     name: string;
     limit: number;
+    holders?: ApiCardHolder[];
 };
 
 interface CreditCardTransactionModalProps {
     children: React.ReactNode;
-    initialData?: CardTransactionData & { id: string };
+    /** Item being edited; the API sends the date as an ISO string and may omit isFixed */
+    initialData?: Omit<CardTransactionData, "date" | "isFixed"> & { id: string; date: Date | string; isFixed?: boolean; cardHolderId?: string };
     onSuccess?: () => void;
 }
 
@@ -110,6 +121,7 @@ export function CreditCardTransactionModal({ children, initialData, onSuccess }:
             amount: initialData?.amount || 0,
             categoryId: initialData?.categoryId || undefined,
             creditCardId: initialData?.creditCardId || "",
+            cardHolderId: initialData?.cardHolderId || undefined,
             installments: initialData?.installments || 1,
             isFixed: initialData?.isFixed ?? false,
             date: initialData?.date ? new Date(initialData.date) : new Date(),
@@ -123,12 +135,27 @@ export function CreditCardTransactionModal({ children, initialData, onSuccess }:
                 amount: initialData?.amount || 0,
                 categoryId: initialData?.categoryId || undefined,
                 creditCardId: initialData?.creditCardId || "",
+                cardHolderId: initialData?.cardHolderId || undefined,
                 installments: initialData?.installments || 1,
                 isFixed: initialData?.isFixed ?? false,
                 date: initialData?.date ? new Date(initialData.date) : new Date(),
             });
         }
     }, [open, initialData, form]);
+
+    const selectedCardId = form.watch("creditCardId");
+    const selectedCard = creditCards.find(card => card.id === selectedCardId);
+    const selectedHolders = holdersOf(selectedCard?.holders);
+
+    // Keep the holder valid when the card changes (or when the cards finish loading)
+    useEffect(() => {
+        if (!open) return;
+        const current = form.getValues("cardHolderId");
+        const holders = holdersOf(selectedCard?.holders);
+        if (!current || !holders.some(holder => holder.id === current)) {
+            form.setValue("cardHolderId", mainHolder(holders)?.id);
+        }
+    }, [open, selectedCardId, creditCards, form, selectedCard]);
 
     const onSubmit = async (data: CardTransactionData) => {
         setIsSaving(true);
@@ -146,6 +173,7 @@ export function CreditCardTransactionModal({ children, initialData, onSuccess }:
                 date: data.date.toISOString(),
                 categoryId: data.categoryId || undefined,
                 creditCardId: data.creditCardId,
+                cardHolderId: data.cardHolderId || undefined,
                 isFixed: data.isFixed,
             } : {
                 description: data.description,
@@ -154,6 +182,7 @@ export function CreditCardTransactionModal({ children, initialData, onSuccess }:
                 installments: data.installments > 1 ? data.installments : undefined,
                 categoryId: data.categoryId || undefined,
                 creditCardId: data.creditCardId,
+                cardHolderId: data.cardHolderId || undefined,
                 isFixed: data.isFixed,
             };
 
@@ -367,6 +396,40 @@ export function CreditCardTransactionModal({ children, initialData, onSuccess }:
                             )}
                         />
 
+                        {selectedHolders.length > 1 && (
+                            <FormField
+                                control={form.control}
+                                name="cardHolderId"
+                                render={({ field }) => {
+                                    const selected = selectedHolders.find(holder => holder.id === field.value);
+                                    return (
+                                        <FormItem>
+                                            <FormLabel>Portador</FormLabel>
+                                            <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Selecione o portador">
+                                                            {selected
+                                                                ? `${selected.name}${selected.last4 ? ` ••${selected.last4}` : ""}${selected.isMain ? " (titular)" : ""}`
+                                                                : undefined}
+                                                        </SelectValue>
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    {selectedHolders.map(holder => (
+                                                        <SelectItem key={holder.id} value={holder.id}>
+                                                            {holder.name}{holder.last4 ? ` ••${holder.last4}` : ""}{holder.isMain ? " (titular)" : ""}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            <FormMessage />
+                                        </FormItem>
+                                    );
+                                }}
+                            />
+                        )}
+
                         <div className="grid grid-cols-2 gap-4">
                             <FormField
                                 control={form.control}
@@ -447,7 +510,7 @@ export function CreditCardTransactionModal({ children, initialData, onSuccess }:
                                 <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSaving}>
                                     Cancelar
                                 </Button>
-                                <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700" disabled={isSaving}>
+                                <Button type="submit" disabled={isSaving}>
                                     {isSaving ? "Salvando..." : (initialData ? "Salvar Alterações" : "Lançar Despesa")}
                                 </Button>
                             </div>

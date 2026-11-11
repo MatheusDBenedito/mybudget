@@ -27,10 +27,23 @@ enum TransactionStatus {
 }
 
 
+enum AccountType {
+  CHECKING  // Conta corrente: não rende (ex: C6, Bradesco)
+  YIELDING  // Conta remunerada: rende % do CDI (ex: Mercado Pago)
+}
+
 model Account {
   id        String   @id @default(uuid())
   name      String
   balance   Float    @default(0)
+  type          AccountType @default(CHECKING)
+  cdiPercentage Float?      // Só para contas remuneradas, ex: 100 = 100% do CDI
+  yieldSince    DateTime?   // Dia a partir do qual a conta remunerada passa a render (sem retroativo)
+  yields        AccountYield[]
+  pots          YieldPot[]
+  transfersOut  AccountTransfer[] @relation("TransfersOut")
+  transfersIn   AccountTransfer[] @relation("TransfersIn")
+  adjustments   BalanceAdjustment[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
@@ -60,6 +73,7 @@ model Transaction {
   type        TransactionType
   status      TransactionStatus @default(PENDING)
   isFixed     Boolean  @default(false)
+  fixedUntil  DateTime? // Conta fixa encerrada: não é mais projetada em meses depois desta data
   
   accountId   String
   account     Account  @relation(fields: [accountId], references: [id])
@@ -78,14 +92,41 @@ model CreditCard {
   invoiceClosingOffset  Int      @default(7)
   dueDay                Int
   color       String?
-  
+
+  // Rewards: points earned per US$ spent, and the program they accrue to (e.g. Livelo, Esfera)
+  pointsPerDollar Float?
+  loyaltyProgram  String?
+
+  // Favorite card: shown first and featured on the summary page (only one at a time)
+  isPrimary   Boolean  @default(false)
+
   accountId   String
   account     Account  @relation(fields: [accountId], references: [id])
   
   transactions CardTransaction[]
+  holders      CardHolder[]
+  milesEntries MilesEntry[]
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// Portador de um cartão: o titular e os cartões adicionais compartilham limite e fatura
+model CardHolder {
+  id           String   @id @default(uuid())
+  creditCardId String
+  creditCard   CreditCard @relation(fields: [creditCardId], references: [id], onDelete: Cascade)
+  name         String
+  last4        String?
+  isMain       Boolean  @default(false)
+
+  transactions CardTransaction[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([creditCardId, name])
+  @@index([creditCardId])
 }
 
 model CardTransaction {
@@ -100,6 +141,9 @@ model CardTransaction {
   
   creditCardId String
   creditCard   CreditCard @relation(fields: [creditCardId], references: [id])
+
+  cardHolderId String
+  cardHolder   CardHolder @relation(fields: [cardHolderId], references: [id], onDelete: Restrict)
   
   categoryId  String?
   category    Category?   @relation(fields: [categoryId], references: [id])
@@ -108,6 +152,8 @@ model CardTransaction {
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([cardHolderId])
 }
 
 model RecurringExpense {
@@ -131,6 +177,7 @@ enum InvestmentType {
   FIXED_INCOME
   VARIABLE_INCOME
   CRYPTO
+  US_STOCK
   OTHER
 }
 
@@ -151,6 +198,119 @@ model Investment {
   currentPrice   Float?         // Preço atual da cota/ação
   quantity       Float?         // Quantidade de cotas/ações (Float for fractional)
 
+  // US stocks/ETFs: averagePrice/currentPrice are in USD
+  purchaseExchangeRate Float?   // Cotação do dólar (BRL) usada na compra
+
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+}
+
+enum MilesStatus {
+  PENDING      // Pendente: pontos ainda não caíram no programa
+  TRANSFERRED  // Transferido: enviado para o programa de destino
+  CREDITED     // Creditado: disponível na conta
+}
+
+model MilesEntry {
+  id                 String      @id @default(uuid())
+  program            String      // Programa de fidelidade (ex: Livelo, Esfera, Smiles)
+  points             Int
+  status             MilesStatus @default(PENDING)
+  expectedCreditDate DateTime    // Previsão de crédito na conta
+
+  // Origem: um cartão cadastrado ou um texto livre (ex: "Compra bonificada")
+  creditCardId       String?
+  creditCard         CreditCard? @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+  origin             String?
+
+  // Fatura de referência quando o lançamento vem da estimativa do cartão
+  referenceMonth     Int?
+  referenceYear      Int?
+  notes              String?
+
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([status])
+  @@index([expectedCreditDate])
+}
+
+// Ajuste manual do saldo de uma conta (editar/zerar saldo): não é receita nem despesa.
+// Fica registrado com data para o rendimento de contas remuneradas mudar a partir desse dia.
+model BalanceAdjustment {
+  id        String   @id @default(uuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  amount    Float    // diferença aplicada ao saldo (+ ou -)
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+}
+
+// Transferência entre contas próprias: não é receita nem despesa, só move saldo
+model AccountTransfer {
+  id            String   @id @default(uuid())
+  fromAccountId String
+  fromAccount   Account  @relation("TransfersOut", fields: [fromAccountId], references: [id])
+  toAccountId   String
+  toAccount     Account  @relation("TransfersIn", fields: [toAccountId], references: [id])
+  amount        Float
+  date          DateTime // Dia em que o dinheiro saiu de uma conta e entrou na outra
+  description   String?
+  createdAt     DateTime @default(now())
+
+  @@index([date])
+}
+
+// Cofrinho dentro de uma conta remunerada, com % do CDI próprio
+model YieldPot {
+  id            String        @id @default(uuid())
+  accountId     String
+  account       Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name          String
+  cdiPercentage Float         // ex: 120 = 120% do CDI
+  balance       Float         @default(0) // Saldo do cofrinho (já incluído no saldo da conta)
+  movements     PotMovement[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+// Guardar (+) ou retirar (-) dinheiro de um cofrinho; o valor vem/volta do saldo livre da conta
+model PotMovement {
+  id        String   @id @default(uuid())
+  potId     String
+  pot       YieldPot @relation(fields: [potId], references: [id], onDelete: Cascade)
+  amount    Float
+  kind      String   @default("transfer") // "transfer" (guardar/retirar do saldo livre) | "adjustment" (acerto com o app do banco)
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+}
+
+// Rendimento diário creditado em contas remuneradas: um registro por conta, por "bucket"
+// (saldo livre da conta = "main", ou o id do cofrinho) e por dia útil
+model AccountYield {
+  id            String   @id @default(uuid())
+  accountId     String
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  bucket        String   @default("main") // "main" ou id do cofrinho
+  date          DateTime @db.Date // Dia útil do CDI que gerou o rendimento
+  cdiDailyRate  Float    // Taxa diária do CDI em % (série 12 do BCB)
+  cdiPercentage Float    // % do CDI do bucket no dia
+  balanceBefore Float    // Saldo do bucket no fim do dia
+  grossAmount   Float
+  irRate        Float    @default(0.225) // Alíquota efetiva do dia (média ponderada dos lotes)
+  taxAmount     Float    // IR retido no dia (cada lote na sua faixa)
+  netAmount     Float    // Rendimento líquido do dia (bruto - IR)
+  taxRefund     Float    @default(0) // IR devolvido dos lotes que mudaram de faixa
+  createdAt     DateTime @default(now())
+
+  @@unique([accountId, bucket, date])
+}
+
+// Layout personalizado do Resumo: ordem e largura dos blocos (singleton, app de usuário único)
+model DashboardLayout {
+  id        String   @id @default("default")
+  items     Json
+  updatedAt DateTime @updatedAt
 }

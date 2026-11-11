@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -32,13 +32,17 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { CurrencyInput } from "@/components/ui/currency-input";
+import { ORIGIN_PROGRAMS } from "@/lib/miles";
 
 const cardSchema = z.object({
     name: z.string().min(2, "O nome deve ter pelo menos 2 caracteres."),
+    holderName: z.string().min(2, "Informe o nome do titular."),
     limit: z.number({ message: "Insira um valor válido." }).positive("O limite deve ser maior que zero."),
     invoiceClosingOffset: z.number().min(1, "Dia inválido.").max(28, "Limite de antecedência irreal."),
     dueDay: z.number().min(1, "Dia inválido.").max(28, "Para evitar bugs em fevereiro, limite o dia até 28."),
     color: z.string().optional(),
+    pointsPerDollar: z.number().min(0, "O fator não pode ser negativo.").max(100, "Fator irreal.").optional(),
+    loyaltyProgram: z.string().max(60).optional(),
 });
 
 type CardData = z.infer<typeof cardSchema>;
@@ -74,6 +78,8 @@ interface ApiCard {
     invoiceClosingOffset: number;
     dueDay: number;
     color?: string;
+    pointsPerDollar?: number | null;
+    loyaltyProgram?: string | null;
 }
 
 interface CreateCardModalProps {
@@ -86,14 +92,19 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
     const [open, setOpen] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
+    const programListId = useId();
+
     const form = useForm<CardData>({
         resolver: zodResolver(cardSchema),
         defaultValues: {
             name: initialData?.name || "",
+            holderName: "Matheus",
             limit: initialData?.limit || 0,
             invoiceClosingOffset: initialData?.invoiceClosingOffset || 7,
             dueDay: initialData?.dueDay || 10,
             color: initialData?.color || CARD_COLORS[0].value,
+            pointsPerDollar: initialData?.pointsPerDollar ?? undefined,
+            loyaltyProgram: initialData?.loyaltyProgram ?? "",
         },
     });
 
@@ -101,10 +112,13 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
         if (open) {
             form.reset({
                 name: initialData?.name || "",
+                holderName: "Matheus",
                 limit: initialData?.limit || 0,
                 invoiceClosingOffset: initialData?.invoiceClosingOffset || 7,
                 dueDay: initialData?.dueDay || 10,
                 color: initialData?.color || CARD_COLORS[0].value,
+                pointsPerDollar: initialData?.pointsPerDollar ?? undefined,
+                loyaltyProgram: initialData?.loyaltyProgram ?? "",
             });
         }
     }, [open, initialData, form]);
@@ -118,10 +132,15 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
                 : "http://localhost:3333/credit-cards";
             const method = isEditing ? "PATCH" : "POST";
 
+            const payload = isEditing
+                ? { ...data, holderName: undefined }
+                : { ...data, holderName: data.holderName.trim() };
+
             const res = await fetch(url, {
                 method,
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(data),
+                // null clears the factor when the field is emptied while editing
+                body: JSON.stringify({ ...payload, pointsPerDollar: data.pointsPerDollar ?? null }),
             });
 
             if (res.ok) {
@@ -172,6 +191,25 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
                                 </FormItem>
                             )}
                         />
+
+                        {!initialData && (
+                            <FormField
+                                control={form.control}
+                                name="holderName"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Portador Titular</FormLabel>
+                                        <FormControl>
+                                            <Input placeholder="Ex: Matheus" {...field} />
+                                        </FormControl>
+                                        <p className="text-xs text-muted-foreground">
+                                            Os cartões adicionais são cadastrados depois, em “Portadores”.
+                                        </p>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        )}
 
                         <FormField
                             control={form.control}
@@ -262,11 +300,57 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
                             />
                         </div>
 
+                        <fieldset className="space-y-3 rounded-lg border p-4">
+                            <legend className="px-1 text-sm font-medium">Pontos e milhas</legend>
+                            <div className="grid grid-cols-2 gap-4">
+                                <FormField
+                                    control={form.control}
+                                    name="pointsPerDollar"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Fator de Conversão (pts/US$)</FormLabel>
+                                            <FormControl>
+                                                <Input
+                                                    type="number"
+                                                    inputMode="decimal"
+                                                    step="0.1"
+                                                    min={0}
+                                                    placeholder="Ex: 2.2"
+                                                    value={field.value ?? ""}
+                                                    onChange={(e) => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="loyaltyProgram"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Programa de Pontos</FormLabel>
+                                            <FormControl>
+                                                <Input list={programListId} placeholder="Ex: Livelo" autoComplete="off" {...field} />
+                                            </FormControl>
+                                            <datalist id={programListId}>
+                                                {ORIGIN_PROGRAMS.map((p) => <option key={p} value={p} />)}
+                                            </datalist>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Usado para estimar os pontos de cada fatura: gasto em R$ ÷ dólar × fator. Deixe em branco se o cartão não pontua.
+                            </p>
+                        </fieldset>
+
                         <div className="flex justify-end pt-4">
                             <Button type="button" variant="outline" className="mr-2" onClick={() => setOpen(false)} disabled={isSaving}>
                                 Cancelar
                             </Button>
-                            <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700" disabled={isSaving}>
+                            <Button type="submit" disabled={isSaving}>
                                 {isSaving ? "Salvando..." : (initialData ? "Salvar Alterações" : "Salvar Cartão")}
                             </Button>
                         </div>

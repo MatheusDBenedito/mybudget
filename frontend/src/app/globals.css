@@ -38,6 +38,18 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  /* Investidor10-style semantic colors */
+  --color-header: var(--header);
+  --color-header-foreground: var(--header-foreground);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-positive-fill: var(--positive-fill);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-negative-fill: var(--negative-fill);
+  --color-asset-icon: var(--asset-icon);
+  --color-asset-icon-soft: var(--asset-icon-soft);
+  --color-asset-icon-border: var(--asset-icon-border);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -48,25 +60,38 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --radius: 0.5rem;
+  --background: #f1f2f4;
+  --foreground: #1f2329;
+  --card: #ffffff;
+  --card-foreground: #1f2329;
+  --popover: #ffffff;
+  --popover-foreground: #1f2329;
+  --primary: #1c1f24;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f2f4;
+  --secondary-foreground: #1f2329;
+  --muted: #f4f5f7;
+  --muted-foreground: #646a73;
+  --accent: #f1f2f4;
+  --accent-foreground: #1f2329;
+  --destructive: #d92d50;
+  --border: #e3e5e9;
+  --input: #d9dce1;
+  --ring: #1c1f24;
+
+  --header: #1c1f24;
+  --header-foreground: #ffffff;
+  /* Text colors keep >= 4.5:1 contrast on white; *-fill are for bars/charts only */
+  --positive: #0a8a66;
+  --positive-soft: #e3f6ef;
+  --positive-fill: #12b886;
+  --negative: #d92d50;
+  --negative-soft: #fdebef;
+  --negative-fill: #f0476a;
+  --asset-icon: #8a6a3d;
+  --asset-icon-soft: #fbf7f0;
+  --asset-icon-border: #e6d9c3;
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -123,4 +148,40 @@
   body {
     @apply bg-background text-foreground;
   }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Header "eye": money values get blurred instead of removed, so the layout never shifts */
+.privacy-value {
+  transition: filter 150ms ease;
+}
+
+.privacy-blur {
+  filter: blur(6px);
+  user-select: none;
+}
+
+/* Components that format their own value (BigMoney) only need the class */
+[data-privacy="on"] .privacy-value {
+  filter: blur(6px);
+  user-select: none;
+}
+
+/* Charts show values outside <Money> (axis labels and hover tooltips) */
+[data-privacy="on"] .recharts-cartesian-axis-tick-value,
+[data-privacy="on"] .recharts-tooltip-wrapper {
+  filter: blur(6px);
+  user-select: none;
 }

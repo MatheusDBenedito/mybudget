@@ -17,7 +17,23 @@ export class InvestmentsService {
     // In-memory cache for CDI rates
     private cdiCache: CdiDayRate[] = [];
     private cdiCacheExpiry: number = 0;
+    private cdiCacheStart: Date | null = null;
+    private cdiFetchInFlight: Promise<void> | null = null;
     private readonly CDI_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
+
+    // In-memory cache for US stock/ETF prices (USD)
+    private usPriceCache: Map<string, number> = new Map();
+    private usCacheExpiry: number = 0;
+    private readonly US_CACHE_TTL_MS = 1000 * 60 * 15; // 15 minutes
+
+    // In-memory cache for USD -> BRL rate
+    private usdRate: number | null = null;
+    private usdRateExpiry: number = 0;
+    private readonly USD_RATE_TTL_MS = 1000 * 60 * 5; // 5 minutes
+
+    // brapi.dev free tier rate-limits bursts, so tickers are fetched sequentially
+    private readonly BRAPI_REQUEST_INTERVAL_MS = 300;
+    private readonly BRAPI_RETRY_DELAY_MS = 1500;
 
     // In-memory cache for B3 stock prices
     private b3PriceCache: Map<string, number> = new Map();
@@ -59,6 +75,7 @@ export class InvestmentsService {
 
     async create(createInvestmentDto: CreateInvestmentDto) {
         const data: any = { ...createInvestmentDto };
+        this.applyUsStockInvestedAmount(data);
         if (!data.currentValue) {
             data.currentValue = data.investedAmount;
         }
@@ -92,6 +109,21 @@ export class InvestmentsService {
             await this.fetchCryptoPrices(tickers);
         }
 
+        // Fetch live US prices and the current dollar rate
+        const usInvs = investments.filter(i => i.type === 'US_STOCK' && i.tickerCode);
+        if (usInvs.length > 0) {
+            const tickers = [...new Set(usInvs.map(i => i.tickerCode!).filter(Boolean))];
+            await Promise.all([this.fetchUsPrices(tickers), this.fetchUsdRate()]);
+        }
+
+        // Load CDI once for the oldest fixed income investment so every enrichment shares the same cache
+        const fixedDates = investments
+            .filter(i => i.type === 'FIXED_INCOME' && i.investmentDate && i.cdiPercentage)
+            .map(i => new Date(i.investmentDate!).getTime());
+        if (fixedDates.length > 0) {
+            await this.ensureCdiRates(new Date(Math.min(...fixedDates)), new Date());
+        }
+
         return Promise.all(investments.map(inv => this.enrichInvestment(inv)));
     }
 
@@ -106,17 +138,24 @@ export class InvestmentsService {
             await this.fetchB3Prices([investment.tickerCode]);
         } else if (investment.type === 'CRYPTO' && investment.tickerCode) {
             await this.fetchCryptoPrices([investment.tickerCode]);
+        } else if (investment.type === 'US_STOCK' && investment.tickerCode) {
+            await Promise.all([this.fetchUsPrices([investment.tickerCode]), this.fetchUsdRate()]);
         }
         return this.enrichInvestment(investment);
     }
 
     async update(id: string, updateInvestmentDto: UpdateInvestmentDto) {
-        await this.findOne(id); // Ensure exists
+        const existing = await this.prisma.investment.findUnique({ where: { id } });
+        if (!existing) {
+            throw new NotFoundException(`Investment with ID ${id} not found`);
+        }
 
         const data: any = { ...updateInvestmentDto };
         if (data.investmentDate) {
             data.investmentDate = new Date(data.investmentDate);
         }
+        // Partial updates must still recompute the BRL cost from the merged values
+        this.applyUsStockInvestedAmount(data, existing);
 
         const updated = await this.prisma.investment.update({
             where: { id },
@@ -126,8 +165,32 @@ export class InvestmentsService {
             await this.fetchB3Prices([updated.tickerCode]);
         } else if (updated.type === 'CRYPTO' && updated.tickerCode) {
             await this.fetchCryptoPrices([updated.tickerCode]);
+        } else if (updated.type === 'US_STOCK' && updated.tickerCode) {
+            await Promise.all([this.fetchUsPrices([updated.tickerCode]), this.fetchUsdRate()]);
         }
         return this.enrichInvestment(updated);
+    }
+
+    /**
+     * For US stocks the BRL cost is derived: average price (USD) × quantity × dollar rate paid.
+     */
+    private applyUsStockInvestedAmount(data: any, existing?: Investment): void {
+        const type = data.type ?? existing?.type;
+        if (type !== 'US_STOCK') return;
+
+        if (data.tickerCode) {
+            data.tickerCode = String(data.tickerCode).trim().toUpperCase();
+        }
+
+        const avg = data.averagePrice ?? existing?.averagePrice;
+        const qty = data.quantity ?? existing?.quantity;
+        const rate = data.purchaseExchangeRate ?? existing?.purchaseExchangeRate;
+        if (avg != null && qty != null && rate != null) {
+            data.investedAmount = avg * qty * rate;
+            if (data.currentValue == null || !existing) {
+                data.currentValue = data.investedAmount;
+            }
+        }
     }
 
     async remove(id: string) {
@@ -142,21 +205,51 @@ export class InvestmentsService {
      * Returns rates as decimals (e.g. 0.055131% -> 0.00055131).
      */
     private async fetchCdiRates(startDate: Date, endDate: Date): Promise<CdiDayRate[]> {
-        // Check cache
-        if (this.cdiCache.length > 0 && Date.now() < this.cdiCacheExpiry) {
-            return this.filterCdiRatesByRange(this.cdiCache, startDate, endDate);
+        await this.ensureCdiRates(startDate, endDate);
+        if (!this.isCdiCacheValidFor(startDate)) {
+            return [];
         }
+        return this.filterCdiRatesByRange(this.cdiCache, startDate, endDate);
+    }
 
+    private isCdiCacheValidFor(startDate: Date): boolean {
+        return this.cdiCache.length > 0
+            && Date.now() < this.cdiCacheExpiry
+            && this.cdiCacheStart !== null
+            && this.cdiCacheStart <= startDate;
+    }
+
+    /**
+     * Makes sure the cache covers startDate..today. Concurrent callers share a single request,
+     * and the cache is only ever widened, never narrowed to a later start date.
+     */
+    private async ensureCdiRates(startDate: Date, endDate: Date): Promise<void> {
+        // Two passes: an in-flight request started by another caller may not reach back far enough
+        for (let attempt = 0; attempt < 2; attempt++) {
+            if (this.isCdiCacheValidFor(startDate)) return;
+
+            if (!this.cdiFetchInFlight) {
+                const fetchStart = new Date(startDate);
+                fetchStart.setMonth(fetchStart.getMonth() - 1); // 1 month buffer before
+                // Never narrow the range already covered by a previous fetch
+                if (this.cdiCacheStart && this.cdiCacheStart < fetchStart) {
+                    fetchStart.setTime(this.cdiCacheStart.getTime());
+                }
+
+                this.cdiFetchInFlight = this.loadCdiRates(fetchStart, endDate)
+                    .finally(() => { this.cdiFetchInFlight = null; });
+            }
+            await this.cdiFetchInFlight;
+        }
+    }
+
+    private async loadCdiRates(fetchStart: Date, endDate: Date): Promise<void> {
         const fmt = (d: Date): string => {
             const dd = String(d.getDate()).padStart(2, '0');
             const mm = String(d.getMonth() + 1).padStart(2, '0');
             const yyyy = d.getFullYear();
             return `${dd}/${mm}/${yyyy}`;
         };
-
-        // Fetch from the earliest possible investment date (we fetch a wide range to cache)
-        const fetchStart = new Date(startDate);
-        fetchStart.setMonth(fetchStart.getMonth() - 1); // 1 month buffer before
 
         const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json&dataInicial=${fmt(fetchStart)}&dataFinal=${fmt(endDate)}`;
 
@@ -172,13 +265,12 @@ export class InvestmentsService {
                 date: item.data,
                 rate: parseFloat(item.valor) / 100, // Convert from % to decimal
             }));
+            this.cdiCacheStart = fetchStart;
             this.cdiCacheExpiry = Date.now() + this.CDI_CACHE_TTL_MS;
 
-            this.logger.log(`Fetched ${this.cdiCache.length} CDI rates from BCB API`);
-            return this.filterCdiRatesByRange(this.cdiCache, startDate, endDate);
+            this.logger.log(`Fetched ${this.cdiCache.length} CDI rates from BCB API (since ${fmt(fetchStart)})`);
         } catch (error) {
             this.logger.warn(`Failed to fetch CDI rates from BCB: ${error.message}. Using fallback.`);
-            return [];
         }
     }
 
@@ -215,7 +307,7 @@ export class InvestmentsService {
      * with fallback to fixed rate if API is unavailable.
      */
     /**
-     * Fetches current stock prices from brapi.dev (B3) with 15-min cache.
+     * Fetches current stock prices from brapi.dev (B3) with 20-min cache.
      */
     private async fetchB3Prices(tickers: string[]): Promise<void> {
         // Check cache
@@ -232,19 +324,27 @@ export class InvestmentsService {
             return;
         }
 
-        // The free tier of brapi.dev allows querying ONLY 1 asset per request.
-        // Therefore, we must fetch them individually.
-        await Promise.allSettled(tickers.map(async (ticker) => {
+        // The free tier of brapi.dev allows querying ONLY 1 asset per request and
+        // rate-limits bursts, so tickers are fetched one at a time with a short pause.
+        for (const [index, ticker] of tickers.entries()) {
+            if (index > 0) {
+                await this.sleep(this.BRAPI_REQUEST_INTERVAL_MS);
+            }
             const url = `https://brapi.dev/api/quote/${ticker}?token=${token}`;
             try {
-                const response = await fetch(url);
+                let response = await fetch(url);
+                if (response.status === 429) {
+                    this.logger.warn(`brapi.dev rate limit for ${ticker}, retrying in ${this.BRAPI_RETRY_DELAY_MS}ms`);
+                    await this.sleep(this.BRAPI_RETRY_DELAY_MS);
+                    response = await fetch(url);
+                }
                 if (response.status === 401 || response.status === 403) {
                     this.logger.error(`Invalid or expired BRAPI_TOKEN for ticker ${ticker}.`);
-                    return;
+                    continue;
                 }
                 if (!response.ok) {
                     this.logger.warn(`brapi.dev returned ${response.status} for ${ticker}`);
-                    return;
+                    continue;
                 }
 
                 const data = await response.json();
@@ -262,9 +362,13 @@ export class InvestmentsService {
             } catch (error) {
                 this.logger.warn(`Failed to fetch B3 price for ${ticker}: ${error.message}`);
             }
-        }));
+        }
 
         this.b3CacheExpiry = Date.now() + this.B3_CACHE_TTL_MS;
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     /**
@@ -311,6 +415,92 @@ export class InvestmentsService {
     }
 
     /**
+     * Fetches US stock/ETF prices in USD. Yahoo Finance first (no key, no shared quota),
+     * brapi.dev as fallback when a token is configured.
+     */
+    private async fetchUsPrices(tickers: string[]): Promise<void> {
+        if (Date.now() < this.usCacheExpiry) {
+            tickers = tickers.filter(t => !this.usPriceCache.has(t.toUpperCase()));
+            if (tickers.length === 0) return;
+        } else {
+            this.usPriceCache.clear();
+        }
+
+        await Promise.allSettled(tickers.map(async (rawTicker) => {
+            const ticker = rawTicker.toUpperCase();
+            const price = await this.fetchUsPriceFromYahoo(ticker) ?? await this.fetchUsPriceFromBrapi(ticker);
+            if (price != null) {
+                this.usPriceCache.set(ticker, price);
+            } else {
+                this.logger.warn(`No US price available for ${ticker}`);
+            }
+        }));
+
+        this.usCacheExpiry = Date.now() + this.US_CACHE_TTL_MS;
+    }
+
+    private async fetchUsPriceFromYahoo(ticker: string): Promise<number | null> {
+        // Yahoo uses "-" for share classes (BRK.B -> BRK-B)
+        const symbol = encodeURIComponent(ticker.replace('.', '-'));
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
+        try {
+            const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            if (!response.ok) {
+                this.logger.warn(`Yahoo Finance returned ${response.status} for ${ticker}`);
+                return null;
+            }
+            const data = await response.json();
+            const meta = data?.chart?.result?.[0]?.meta;
+            if (meta?.regularMarketPrice == null) return null;
+            if (meta.currency && meta.currency !== 'USD') {
+                this.logger.warn(`${ticker} is quoted in ${meta.currency}, expected USD`);
+                return null;
+            }
+            return meta.regularMarketPrice;
+        } catch (error) {
+            this.logger.warn(`Failed to fetch Yahoo price for ${ticker}: ${error.message}`);
+            return null;
+        }
+    }
+
+    private async fetchUsPriceFromBrapi(ticker: string): Promise<number | null> {
+        const token = process.env.BRAPI_TOKEN;
+        if (!token) return null;
+        try {
+            const response = await fetch(`https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?token=${token}`);
+            if (!response.ok) return null;
+            const data = await response.json();
+            const result = data?.results?.[0];
+            if (result?.regularMarketPrice == null || (result.currency && result.currency !== 'USD')) return null;
+            return result.regularMarketPrice;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Fetches the current USD -> BRL rate (AwesomeAPI) with 5-min cache.
+     */
+    private async fetchUsdRate(): Promise<void> {
+        if (this.usdRate != null && Date.now() < this.usdRateExpiry) return;
+        try {
+            const response = await fetch('https://economia.awesomeapi.com.br/last/USD-BRL');
+            if (!response.ok) {
+                this.logger.warn(`AwesomeAPI returned ${response.status} for USD-BRL`);
+                return;
+            }
+            const data = await response.json();
+            const bid = Number(data?.USDBRL?.bid);
+            if (bid > 0) {
+                this.usdRate = bid;
+                this.usdRateExpiry = Date.now() + this.USD_RATE_TTL_MS;
+            }
+        } catch (error) {
+            this.logger.warn(`Failed to fetch USD rate: ${error.message}`);
+        }
+    }
+
+    /**
      * Enriches an investment with calculated fields.
      * - FIXED_INCOME: CDI yield calculation
      * - VARIABLE_INCOME: live B3 price
@@ -343,6 +533,34 @@ export class InvestmentsService {
                 };
             }
             return inv;
+        }
+
+        // US stocks/ETFs: live USD price converted to BRL with the current dollar rate.
+        // currentValue is BRL so dashboards that only sum currentValue stay correct.
+        if (inv.type === 'US_STOCK') {
+            const qty = inv.quantity ?? 0;
+            const avgUsd = inv.averagePrice ?? 0;
+            const purchaseRate = inv.purchaseExchangeRate ?? 0;
+            const livePriceUsd = inv.tickerCode ? this.usPriceCache.get(inv.tickerCode.toUpperCase()) : undefined;
+            const currentPriceUsd = livePriceUsd ?? inv.currentPrice ?? avgUsd;
+            const currentRate = this.usdRate ?? purchaseRate;
+
+            const investedUsd = avgUsd * qty;
+            const currentValueUsd = currentPriceUsd * qty;
+            const currentValueBrl = currentValueUsd * currentRate;
+
+            return {
+                ...inv,
+                currentPrice: currentPriceUsd,
+                currentExchangeRate: currentRate,
+                investedUsd,
+                currentValueUsd,
+                currentValue: currentValueBrl,
+                // Splits the BRL result into what came from the asset and what came from the dollar
+                assetGainBrl: (currentPriceUsd - avgUsd) * qty * currentRate,
+                fxGainBrl: investedUsd * (currentRate - purchaseRate),
+                priceIsLive: livePriceUsd != null,
+            };
         }
 
         // Fixed income: CDI simulation

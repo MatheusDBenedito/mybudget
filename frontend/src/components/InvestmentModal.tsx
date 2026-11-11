@@ -35,7 +35,7 @@ import {
 
 const investmentSchema = z.object({
     name: z.string().min(2, "O nome deve ter pelo menos 2 caracteres."),
-    type: z.enum(["FIXED_INCOME", "VARIABLE_INCOME", "CRYPTO", "OTHER"], {
+    type: z.enum(["FIXED_INCOME", "VARIABLE_INCOME", "CRYPTO", "US_STOCK", "OTHER"], {
         message: "Selecione um tipo válido."
     }),
     investedAmount: z.number().min(0, "O valor não pode ser negativo."),
@@ -48,6 +48,7 @@ const investmentSchema = z.object({
     averagePrice: z.number().optional(),
     currentPrice: z.number().optional(),
     quantity: z.number().optional(),
+    purchaseExchangeRate: z.number().optional(),
 }).superRefine((data, ctx) => {
     if (data.type === "FIXED_INCOME") {
         if (!data.investmentDate) {
@@ -65,13 +66,22 @@ const investmentSchema = z.object({
             });
         }
     }
-    if (data.type === "VARIABLE_INCOME" || data.type === "CRYPTO") {
+    if (data.type === "US_STOCK" && (!data.purchaseExchangeRate || data.purchaseExchangeRate <= 0)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Informe a cotação do dólar na compra.",
+            path: ["purchaseExchangeRate"],
+        });
+    }
+    if (data.type === "VARIABLE_INCOME" || data.type === "CRYPTO" || data.type === "US_STOCK") {
         if (!data.tickerCode || data.tickerCode.trim() === "") {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 message: data.type === "CRYPTO"
                     ? "O código é obrigatório (ex: BTC, ETH)."
-                    : "O código é obrigatório para Renda Variável.",
+                    : data.type === "US_STOCK"
+                        ? "O código é obrigatório (ex: AAPL, VOO)."
+                        : "O código é obrigatório para Renda Variável.",
                 path: ["tickerCode"],
             });
         }
@@ -127,8 +137,10 @@ export function InvestmentModal({ children, investmentToEdit, open: controlledOp
             averagePrice: 0,
             currentPrice: 0,
             quantity: 0,
+            purchaseExchangeRate: 0,
         },
     });
+    const [isFetchingRate, setIsFetchingRate] = useState(false);
 
     useEffect(() => {
         if (open && investmentToEdit) {
@@ -144,6 +156,7 @@ export function InvestmentModal({ children, investmentToEdit, open: controlledOp
                 averagePrice: investmentToEdit.averagePrice || 0,
                 currentPrice: investmentToEdit.currentPrice || 0,
                 quantity: investmentToEdit.quantity || 0,
+                purchaseExchangeRate: investmentToEdit.purchaseExchangeRate || 0,
             });
         } else if (open && !investmentToEdit) {
             form.reset({
@@ -158,11 +171,32 @@ export function InvestmentModal({ children, investmentToEdit, open: controlledOp
                 averagePrice: 0,
                 currentPrice: 0,
                 quantity: 0,
+                purchaseExchangeRate: 0,
             });
         }
     }, [investmentToEdit, open, form]);
 
     const watchType = form.watch("type");
+    const watchAvgPrice = form.watch("averagePrice") ?? 0;
+    const watchQuantity = form.watch("quantity") ?? 0;
+    const watchPurchaseRate = form.watch("purchaseExchangeRate") ?? 0;
+
+    const fillCurrentUsdRate = async () => {
+        setIsFetchingRate(true);
+        try {
+            const res = await fetch("https://economia.awesomeapi.com.br/last/USD-BRL");
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const bid = Number(data?.USDBRL?.bid);
+            if (!(bid > 0)) throw new Error("cotação inválida");
+            form.setValue("purchaseExchangeRate", Number(bid.toFixed(4)), { shouldValidate: true });
+        } catch (error) {
+            console.error(error);
+            toast.error("Não foi possível obter a cotação atual do dólar.");
+        } finally {
+            setIsFetchingRate(false);
+        }
+    };
 
     const onSubmit = async (data: InvestmentData) => {
         setIsSaving(true);
@@ -196,6 +230,20 @@ export function InvestmentModal({ children, investmentToEdit, open: controlledOp
                 bodyData.quantity = Number(data.quantity);
                 bodyData.investedAmount = Number(data.averagePrice) * Number(data.quantity);
                 bodyData.currentValue = bodyData.investedAmount as number; // Will be overridden by CoinGecko live price
+            }
+
+            if (data.type === "US_STOCK") {
+                bodyData.sector = data.sector || undefined;
+                bodyData.tickerCode = data.tickerCode?.trim().toUpperCase();
+                bodyData.averagePrice = Number(data.averagePrice); // USD
+                bodyData.quantity = Number(data.quantity);
+                bodyData.purchaseExchangeRate = Number(data.purchaseExchangeRate);
+                // BRL cost; the backend recomputes it the same way
+                bodyData.investedAmount = Number(data.averagePrice) * Number(data.quantity) * Number(data.purchaseExchangeRate);
+                bodyData.currentValue = bodyData.investedAmount as number;
+                if (data.investmentDate) {
+                    bodyData.investmentDate = new Date(data.investmentDate).toISOString();
+                }
             }
 
             const method = investmentToEdit ? "PATCH" : "POST";
@@ -275,6 +323,7 @@ export function InvestmentModal({ children, investmentToEdit, open: controlledOp
                                         <SelectContent>
                                             <SelectItem value="FIXED_INCOME">CDB / Renda Fixa</SelectItem>
                                             <SelectItem value="VARIABLE_INCOME">Renda Variável</SelectItem>
+                                            <SelectItem value="US_STOCK">Ações / ETFs (EUA)</SelectItem>
                                             <SelectItem value="CRYPTO">Criptomoedas</SelectItem>
                                             <SelectItem value="OTHER">Outros</SelectItem>
                                         </SelectContent>
@@ -485,6 +534,128 @@ export function InvestmentModal({ children, investmentToEdit, open: controlledOp
                             </>
                         )}
 
+                        {/* ── US STOCK / ETF FIELDS ── */}
+                        {watchType === "US_STOCK" && (
+                            <>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <FormField
+                                        control={form.control}
+                                        name="tickerCode"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Código (Ticker)</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="Ex: AAPL, VOO" className="uppercase" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="sector"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Ramo / Tipo</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="Ex: Tecnologia, ETF S&P 500" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <FormField
+                                        control={form.control}
+                                        name="averagePrice"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Preço Médio (US$)</FormLabel>
+                                                <FormControl>
+                                                    <CurrencyInput
+                                                        prefix="US$ "
+                                                        placeholder="US$ 0,00"
+                                                        value={field.value || ""}
+                                                        onChange={(val) => field.onChange(val || 0)}
+                                                    />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="quantity"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Quantidade</FormLabel>
+                                                <FormControl>
+                                                    <Input
+                                                        type="number"
+                                                        step="0.000001"
+                                                        placeholder="0"
+                                                        value={field.value || ""}
+                                                        onChange={(e) => field.onChange(Number(e.target.value))}
+                                                    />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <FormField
+                                        control={form.control}
+                                        name="purchaseExchangeRate"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Dólar na Compra (R$)</FormLabel>
+                                                <FormControl>
+                                                    <CurrencyInput
+                                                        decimalScale={4}
+                                                        placeholder="R$ 0,0000"
+                                                        value={field.value || ""}
+                                                        onChange={(val) => field.onChange(val || 0)}
+                                                    />
+                                                </FormControl>
+                                                <button
+                                                    type="button"
+                                                    onClick={fillCurrentUsdRate}
+                                                    disabled={isFetchingRate}
+                                                    className="text-[11px] text-emerald-700 hover:underline disabled:opacity-50 text-left"
+                                                >
+                                                    {isFetchingRate ? "Buscando cotação..." : "Usar cotação de hoje"}
+                                                </button>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="investmentDate"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Data da Compra</FormLabel>
+                                                <FormControl>
+                                                    <Input type="date" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                                <div className="rounded-md bg-sky-50 border border-sky-100 px-3 py-2 text-xs text-sky-900 flex justify-between">
+                                    <span>Total investido</span>
+                                    <span className="font-semibold tabular-nums">
+                                        {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "USD" }).format(watchAvgPrice * watchQuantity)}
+                                        {" = "}
+                                        {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(watchAvgPrice * watchQuantity * watchPurchaseRate)}
+                                    </span>
+                                </div>
+                            </>
+                        )}
+
                         {/* ── OTHER FIELDS ── */}
                         {watchType === "OTHER" && (
                             <div className="grid grid-cols-2 gap-4">
@@ -529,7 +700,7 @@ export function InvestmentModal({ children, investmentToEdit, open: controlledOp
                             <Button type="button" variant="outline" className="mr-2" onClick={() => setOpen(false)} disabled={isSaving}>
                                 Cancelar
                             </Button>
-                            <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700" disabled={isSaving}>
+                            <Button type="submit" disabled={isSaving}>
                                 {isSaving ? "Salvando..." : "Salvar"}
                             </Button>
                         </div>

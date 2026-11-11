@@ -22,4 +22,21 @@ export class CreateCreditCardDto {
     @IsString()
     @IsOptional()
     color?: string;
+
+    // Fator de conversão: pontos gerados por US$ gasto (ex: 2.2)
+    @IsNumber()
+    @Min(0)
+    @Max(100)
+    @IsOptional()
+    pointsPerDollar?: number;
+
+    // Programa onde os pontos acumulam (ex: Livelo, Esfera)
+    @IsString()
+    @IsOptional()
+    loyaltyProgram?: string;
+
+    // Nome do portador titular criado junto com o cartão
+    @IsString()
+    @IsOptional()
+    holderName?: string;
 }

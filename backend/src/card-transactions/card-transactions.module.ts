@@ -8,6 +8,7 @@ import { PdfParserService } from './pdf-parser.service';
   imports: [PrismaModule],
   controllers: [CardTransactionsController],
   providers: [CardTransactionsService, PdfParserService],
+  exports: [CardTransactionsService],
 })
 export class CardTransactionsModule { }
 

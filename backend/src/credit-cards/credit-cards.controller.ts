@@ -17,6 +17,11 @@ export class CreditCardsController {
         return this.creditCardsService.findAll();
     }
 
+    @Patch(':id/primary')
+    setPrimary(@Param('id') id: string) {
+        return this.creditCardsService.setPrimary(id);
+    }
+
     @Patch(':id')
     update(@Param('id') id: string, @Body() updateCreditCardDto: UpdateCreditCardDto) {
         return this.creditCardsService.update(id, updateCreditCardDto);

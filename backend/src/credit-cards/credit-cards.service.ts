@@ -16,6 +16,11 @@ export class CreditCardsService {
             throw new NotFoundException('Por favor, crie uma Conta Corrente antes de adicionar cartões.');
         }
 
+        // The first card becomes the favorite, so the summary always has something to show
+        const hasPrimary = await this.prisma.creditCard.findFirst({ where: { isPrimary: true } });
+
+        const holderName = createCreditCardDto.holderName?.trim() || 'Titular';
+
         return this.prisma.creditCard.create({
             data: {
                 name: createCreditCardDto.name,
@@ -23,17 +28,57 @@ export class CreditCardsService {
                 invoiceClosingOffset: createCreditCardDto.invoiceClosingOffset,
                 dueDay: createCreditCardDto.dueDay,
                 color: createCreditCardDto.color,
+                pointsPerDollar: createCreditCardDto.pointsPerDollar,
+                loyaltyProgram: createCreditCardDto.loyaltyProgram?.trim() || null,
+                isPrimary: !hasPrimary,
                 accountId: account.id,
+                holders: {
+                    create: {
+                        name: holderName,
+                        isMain: true,
+                    },
+                },
+            },
+            include: {
+                holders: {
+                    orderBy: [{ isMain: 'desc' }, { name: 'asc' }],
+                },
             },
         });
     }
 
     async findAll() {
         return this.prisma.creditCard.findMany({
-            orderBy: {
-                createdAt: 'desc',
+            orderBy: [
+                { isPrimary: 'desc' },
+                { createdAt: 'desc' },
+            ],
+            include: {
+                holders: {
+                    orderBy: [{ isMain: 'desc' }, { name: 'asc' }],
+                },
             },
         });
+    }
+
+    /** Makes this card the only favorite (and therefore the one featured on the summary). */
+    async setPrimary(id: string) {
+        const card = await this.prisma.creditCard.findUnique({ where: { id } });
+        if (!card) {
+            throw new NotFoundException('Cartão não encontrado.');
+        }
+
+        const [, updated] = await this.prisma.$transaction([
+            this.prisma.creditCard.updateMany({
+                where: { isPrimary: true, id: { not: id } },
+                data: { isPrimary: false },
+            }),
+            this.prisma.creditCard.update({
+                where: { id },
+                data: { isPrimary: true },
+            }),
+        ]);
+        return updated;
     }
 
     async update(id: string, updateCreditCardDto: UpdateCreditCardDto) {
@@ -45,6 +90,16 @@ export class CreditCardsService {
                 invoiceClosingOffset: updateCreditCardDto.invoiceClosingOffset,
                 dueDay: updateCreditCardDto.dueDay,
                 color: updateCreditCardDto.color,
+                pointsPerDollar: updateCreditCardDto.pointsPerDollar,
+                // undefined keeps the current value; an empty string clears it
+                loyaltyProgram: updateCreditCardDto.loyaltyProgram === undefined
+                    ? undefined
+                    : updateCreditCardDto.loyaltyProgram.trim() || null,
+            },
+            include: {
+                holders: {
+                    orderBy: [{ isMain: 'desc' }, { name: 'asc' }],
+                },
             },
         });
     }

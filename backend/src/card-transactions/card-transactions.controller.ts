@@ -70,7 +70,7 @@ export class CardTransactionsController {
 
     @Post('import-pdf/confirm')
     async confirmImport(
-        @Body() body: { creditCardId: string; transactions: ParsedTransaction[] },
+        @Body() body: { creditCardId: string; transactions: (ParsedTransaction & { cardHolderId?: string })[] },
     ) {
         const { creditCardId, transactions } = body;
         if (!creditCardId || !transactions?.length) {
@@ -87,6 +87,7 @@ export class CardTransactionsController {
                 amount: tx.amount,
                 date: tx.date,
                 creditCardId,
+                cardHolderId: tx.cardHolderId ?? null,
                 categoryId: tx.suggestedCategoryId ?? null,
                 installmentsCurrent: tx.installmentsCurrent ?? null,
                 installmentsTotal: tx.installmentsTotal ?? null,
@@ -124,6 +125,7 @@ export class CardTransactionsController {
                 invoiceDate,
                 installments: 1,
                 creditCardId: original.creditCardId,
+                cardHolderId: original.cardHolderId,
                 categoryId: original.categoryId,
                 installmentGroupId: null,
             } as any,

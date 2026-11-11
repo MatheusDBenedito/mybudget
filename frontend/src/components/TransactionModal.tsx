@@ -39,6 +39,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { type AccountLike, defaultSettlementAccount } from "@/lib/accounts";
 
 const transactionSchema = z.object({
     description: z.string().min(3, "A descrição deve ter pelo menos 3 caracteres."),
@@ -58,17 +59,15 @@ type ApiCategory = {
     color: string | null;
 };
 
-type ApiAccount = {
-    id: string;
-    name: string;
-    balance: number;
-};
+type ApiAccount = AccountLike;
 
 interface TransactionModalProps {
     children: React.ReactNode;
+    /** Called after saving; when omitted the page reloads */
+    onSuccess?: () => void;
 }
 
-export function TransactionModal({ children }: TransactionModalProps) {
+export function TransactionModal({ children, onSuccess }: TransactionModalProps) {
     const [open, setOpen] = useState(false);
     const [categories, setCategories] = useState<ApiCategory[]>([]);
     const [accounts, setAccounts] = useState<ApiAccount[]>([]);
@@ -102,7 +101,8 @@ export function TransactionModal({ children }: TransactionModalProps) {
                     const accData = await accRes.json();
                     setAccounts(accData);
                     if (accData.length > 0) {
-                        form.setValue("accountId", accData[0].id);
+                        // New entries default to expense, so prefer an account that doesn't yield
+                        form.setValue("accountId", defaultSettlementAccount(accData, "EXPENSE")?.id ?? accData[0].id);
                     }
                 }
             } catch (error) {
@@ -134,8 +134,14 @@ export function TransactionModal({ children }: TransactionModalProps) {
 
             if (res.ok) {
                 setOpen(false);
-                form.reset();
-                window.location.reload(); // Reload to fetch fresh data for Dashboard MVP
+                // Keep a valid account selected so a second entry can be saved without reloading
+                form.reset({ ...form.formState.defaultValues, date: new Date(), accountId: defaultSettlementAccount(accounts, "EXPENSE")?.id ?? "" });
+                if (onSuccess) {
+                    toast.success("Lançamento salvo.");
+                    onSuccess();
+                } else {
+                    window.location.reload(); // Reload to fetch fresh data for Dashboard MVP
+                }
             } else {
                 const error = await res.json();
                 toast.error(`Erro: ${error.message}`);
@@ -374,7 +380,7 @@ export function TransactionModal({ children }: TransactionModalProps) {
                             <Button type="button" variant="outline" className="mr-2" onClick={() => setOpen(false)} disabled={isSaving}>
                                 Cancelar
                             </Button>
-                            <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700" disabled={isSaving}>
+                            <Button type="submit" disabled={isSaving}>
                                 {isSaving ? "Salvando..." : "Salvar Transação"}
                             </Button>
                         </div>

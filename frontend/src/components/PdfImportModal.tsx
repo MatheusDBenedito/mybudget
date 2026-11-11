@@ -1,5 +1,7 @@
 "use client";
 
+import { Money } from "@/components/Money";
+
 import { useState, useCallback, useRef } from "react";
 import { Upload, FileText, AlertTriangle, CheckCircle2, ChevronRight, PlusCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -23,6 +25,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { holderLabel, holdersOf, mainHolder } from "@/lib/credit-cards";
 
 interface ParsedTransaction {
     date: string;
@@ -35,9 +38,21 @@ interface ParsedTransaction {
     _categoryId?: string | null;
     _exclude?: boolean;
     _description?: string; // user-edited description
+    _cardHolderId?: string;
 }
 
-interface ApiCard { id: string; name: string; }
+interface ApiCardHolder {
+    id: string;
+    name: string;
+    last4?: string | null;
+    isMain: boolean;
+}
+
+interface ApiCard {
+    id: string;
+    name: string;
+    holders?: ApiCardHolder[];
+}
 interface ApiCategory { id: string; name: string; }
 
 interface PdfImportModalProps {
@@ -49,9 +64,6 @@ interface PdfImportModalProps {
 }
 
 type Step = "upload" | "review" | "done";
-
-const formatBRL = (v: number) =>
-    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
 // ─── Quick-Create Category dialog ──────────────────────────────────────────
 function QuickCreateCategory({
@@ -113,7 +125,7 @@ function QuickCreateCategory({
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-                    <Button onClick={handleSave} disabled={!name.trim() || saving} className="bg-indigo-600 hover:bg-indigo-700">
+                    <Button onClick={handleSave} disabled={!name.trim() || saving}>
                         {saving ? "Criando..." : "Criar"}
                     </Button>
                 </DialogFooter>
@@ -183,11 +195,16 @@ export function PdfImportModal({ cards, categories: initialCategories, currentCa
                 return;
             }
 
+            const defaultHolderId = mainHolder(
+                holdersOf(cards.find(c => c.id === selectedCardId)?.holders),
+            )?.id;
+
             const enriched: ParsedTransaction[] = data.transactions.map((tx: ParsedTransaction) => ({
                 ...tx,
                 _categoryId: tx.suggestedCategoryId,
                 _exclude: false,
                 _description: tx.description,
+                _cardHolderId: defaultHolderId,
             }));
 
             setTransactions(enriched);
@@ -209,6 +226,7 @@ export function PdfImportModal({ cards, categories: initialCategories, currentCa
                 ...tx,
                 description: tx._description ?? tx.description,
                 suggestedCategoryId: tx._categoryId ?? null,
+                cardHolderId: tx._cardHolderId,
             }));
 
             const res = await fetch("http://localhost:3333/card-transactions/import-pdf/confirm", {
@@ -240,6 +258,13 @@ export function PdfImportModal({ cards, categories: initialCategories, currentCa
 
     const activeCount = transactions.filter(tx => !tx._exclude).length;
     const uncategorizedCount = transactions.filter(tx => !tx._categoryId && !tx._exclude).length;
+
+    const importHolders = holdersOf(cards.find(c => c.id === selectedCardId)?.holders);
+    const defaultHolderId = mainHolder(importHolders)?.id ?? "";
+
+    const applyHolderToAll = (holderId: string) => {
+        setTransactions(prev => prev.map(tx => ({ ...tx, _cardHolderId: holderId })));
+    };
 
     return (
         <Dialog open={open} onOpenChange={o => { setOpen(o); if (!o) resetModal(); }}>
@@ -320,7 +345,7 @@ export function PdfImportModal({ cards, categories: initialCategories, currentCa
                             </div>
 
                             <div className="flex justify-end">
-                                <Button onClick={handleParse} disabled={!file || !selectedCardId || isParsing} className="bg-indigo-600 hover:bg-indigo-700">
+                                <Button onClick={handleParse} disabled={!file || !selectedCardId || isParsing}>
                                     {isParsing ? "Analisando PDF..." : "Analisar Fatura"}
                                 </Button>
                             </div>
@@ -346,6 +371,7 @@ export function PdfImportModal({ cards, categories: initialCategories, currentCa
                                             <th className="px-2 py-2">Descrição</th>
                                             <th className="px-2 py-2 text-center">Parc.</th>
                                             <th className="px-2 py-2 text-right whitespace-nowrap">Valor</th>
+                                            {importHolders.length > 1 && <th className="px-2 py-2">Portador</th>}
                                             <th className="px-2 py-2">Categoria</th>
                                         </tr>
                                     </thead>
@@ -380,8 +406,34 @@ export function PdfImportModal({ cards, categories: initialCategories, currentCa
                                                 </td>
                                                 {/* Amount */}
                                                 <td className="px-2 py-1.5 text-right font-medium tabular-nums whitespace-nowrap">
-                                                    {formatBRL(tx.amount)}
+                                                    <Money value={tx.amount} />
                                                 </td>
+                                                {/* Holder */}
+                                                {importHolders.length > 1 && (
+                                                    <td className="px-2 py-1.5 min-w-[130px]">
+                                                        <Select
+                                                            value={tx._cardHolderId ?? defaultHolderId}
+                                                            onValueChange={value => updateTx(i, { _cardHolderId: value })}
+                                                            disabled={tx._exclude}
+                                                        >
+                                                            <SelectTrigger className="h-7 text-xs">
+                                                                <SelectValue>
+                                                                    {(() => {
+                                                                        const selected = importHolders.find(holder => holder.id === (tx._cardHolderId ?? defaultHolderId));
+                                                                        return selected ? holderLabel(selected) : undefined;
+                                                                    })()}
+                                                                </SelectValue>
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {importHolders.map(holder => (
+                                                                    <SelectItem key={holder.id} value={holder.id}>
+                                                                        {holder.name}{holder.last4 ? ` ••${holder.last4}` : ""}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </td>
+                                                )}
                                                 {/* Category */}
                                                 <td className="px-2 py-1.5 min-w-[180px]">
                                                     <div className="flex items-center gap-1">
@@ -420,10 +472,26 @@ export function PdfImportModal({ cards, categories: initialCategories, currentCa
                             </div>
 
                             <div className="flex justify-between items-center pt-1">
-                                <span className="text-sm text-gray-500">{activeCount} de {transactions.length} selecionadas</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-gray-500">{activeCount} de {transactions.length} selecionadas</span>
+                                    {importHolders.length > 1 && (
+                                        <Select onValueChange={applyHolderToAll}>
+                                            <SelectTrigger className="h-7 w-[150px] bg-white text-xs">
+                                                <SelectValue placeholder="Aplicar portador..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {importHolders.map(holder => (
+                                                    <SelectItem key={holder.id} value={holder.id}>
+                                                        {holder.name}{holder.last4 ? ` ••${holder.last4}` : ""}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    )}
+                                </div>
                                 <div className="flex gap-2">
                                     <Button variant="outline" onClick={() => setStep("upload")}>Voltar</Button>
-                                    <Button onClick={handleConfirm} disabled={isImporting || activeCount === 0} className="bg-emerald-600 hover:bg-emerald-700">
+                                    <Button onClick={handleConfirm} disabled={isImporting || activeCount === 0}>
                                         {isImporting ? "Importando..." : `Importar ${activeCount} transaç${activeCount === 1 ? "ão" : "ões"}`}
                                     </Button>
                                 </div>
@@ -437,7 +505,7 @@ export function PdfImportModal({ cards, categories: initialCategories, currentCa
                             <CheckCircle2 className="h-16 w-16 text-emerald-500" />
                             <h3 className="text-lg font-semibold text-gray-900">Importação concluída!</h3>
                             <p className="text-gray-500 text-sm">As transações foram lançadas na fatura do cartão selecionado.</p>
-                            <Button onClick={() => setOpen(false)} className="bg-emerald-600 hover:bg-emerald-700">Fechar</Button>
+                            <Button onClick={() => setOpen(false)}>Fechar</Button>
                         </div>
                     )}
                 </div>

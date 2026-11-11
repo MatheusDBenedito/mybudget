@@ -42,7 +42,7 @@ export function CategoryManager() {
                     <p className="text-sm text-gray-500">Gerencie as categorias usadas para classificar suas despesas e receitas.</p>
                 </div>
                 <CreateCategoryModal onSuccess={loadCategories}>
-                    <Button className="bg-emerald-600 hover:bg-emerald-700">
+                    <Button>
                         <PlusCircle className="mr-2 h-4 w-4" />
                         Nova Categoria
                     </Button>

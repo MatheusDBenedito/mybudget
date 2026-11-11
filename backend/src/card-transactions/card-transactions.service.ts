@@ -21,6 +21,11 @@ export class CardTransactionsService {
             throw new NotFoundException(`Credit Card with ID ${createDto.creditCardId} not found`);
         }
 
+        const cardHolderId = await this.resolveCardHolderId(
+            createDto.creditCardId,
+            createDto.cardHolderId,
+        );
+
         // 2. Compute distributed amounts for each installment to prevent penny dropping
         const installmentsCount = createDto.isFixed ? 1 : (createDto.installments ?? 1);
         const distributedAmounts = distributeInstallments(createDto.amount, installmentsCount);
@@ -54,6 +59,7 @@ export class CardTransactionsService {
                 invoiceDate: invoiceDate, // Distribute across future invoices based on simulated month
                 installments: installmentsCount,
                 creditCardId: createDto.creditCardId,
+                cardHolderId,
                 categoryId: createDto.categoryId,
                 installmentGroupId: installmentGroupId,
                 isFixed: createDto.isFixed ?? false,
@@ -90,6 +96,7 @@ export class CardTransactionsService {
         /** Date of the current installment (from the PDF) */
         date: string;
         creditCardId: string;
+        cardHolderId?: string | null;
         categoryId?: string | null;
         /** Which installment is shown in the PDF (e.g. 4 for "Parcela 4/5") */
         installmentsCurrent: number | null;
@@ -102,6 +109,11 @@ export class CardTransactionsService {
         if (!creditCard) {
             throw new NotFoundException(`Credit Card ${opts.creditCardId} not found`);
         }
+
+        const cardHolderId = await this.resolveCardHolderId(
+            opts.creditCardId,
+            opts.cardHolderId,
+        );
 
         const current = opts.installmentsCurrent ?? 1;
         const total = opts.installmentsTotal ?? 1;
@@ -129,6 +141,7 @@ export class CardTransactionsService {
                 invoiceDate,
                 installments: total,
                 creditCardId: opts.creditCardId,
+                cardHolderId,
                 categoryId: opts.categoryId ?? null,
                 installmentGroupId,
                 isFixed: false,
@@ -204,6 +217,11 @@ export class CardTransactionsService {
                 ]
             },
             orderBy: { date: 'desc' },
+            include: {
+                cardHolder: {
+                    select: { id: true, name: true, last4: true },
+                },
+            },
         });
 
         // Projetar despesas fixas para parecerem lançamentos independentes no mês atual
@@ -322,6 +340,16 @@ export class CardTransactionsService {
 
         if (!transaction) throw new NotFoundException('Transaction not found');
 
+        const targetCardId = updateDto.creditCardId ?? transaction.creditCardId;
+        const cardChanged = !!updateDto.creditCardId && updateDto.creditCardId !== transaction.creditCardId;
+
+        let cardHolderId = transaction.cardHolderId;
+        if (updateDto.cardHolderId) {
+            cardHolderId = await this.resolveCardHolderId(targetCardId, updateDto.cardHolderId);
+        } else if (cardChanged) {
+            cardHolderId = await this.resolveCardHolderId(targetCardId);
+        }
+
         let invoiceDate = transaction.invoiceDate;
 
         if (updateDto.date) {
@@ -366,6 +394,7 @@ export class CardTransactionsService {
                         isFixed: false, // Forçamos para false para ser apenas uma exceção isolada
                         categoryId: updateDto.categoryId ?? transaction.categoryId,
                         creditCardId: updateDto.creditCardId ?? transaction.creditCardId,
+                        cardHolderId,
                     }
                 });
             } else {
@@ -379,6 +408,7 @@ export class CardTransactionsService {
                         amount: updateDto.amount,
                         categoryId: updateDto.categoryId,
                         creditCardId: updateDto.creditCardId,
+                        cardHolderId,
                         // Não atualizamos as datas base, pois causaria shifts na série
                     },
                 });
@@ -416,6 +446,7 @@ export class CardTransactionsService {
                     isFixed: false,
                     categoryId: updateDto.categoryId ?? transaction.categoryId,
                     creditCardId: updateDto.creditCardId ?? transaction.creditCardId,
+                    cardHolderId,
                 }
             });
         }
@@ -430,8 +461,40 @@ export class CardTransactionsService {
                 invoiceDate: invoiceDate,
                 categoryId: updateDto.categoryId,
                 creditCardId: updateDto.creditCardId,
+                cardHolderId,
                 isFixed: updateDto.isFixed,
             },
         });
+    }
+
+    /**
+     * Resolves the holder of a card transaction: the given holder (validated against
+     * the card) or the card's main holder when none was selected.
+     */
+    private async resolveCardHolderId(creditCardId: string, cardHolderId?: string | null) {
+        if (cardHolderId) {
+            const holder = await this.prisma.cardHolder.findFirst({
+                where: { id: cardHolderId, creditCardId },
+                select: { id: true },
+            });
+
+            if (!holder) {
+                throw new BadRequestException('O portador selecionado não pertence a este cartão.');
+            }
+
+            return holder.id;
+        }
+
+        const mainHolder = await this.prisma.cardHolder.findFirst({
+            where: { creditCardId },
+            orderBy: [{ isMain: 'desc' }, { createdAt: 'asc' }],
+            select: { id: true },
+        });
+
+        if (!mainHolder) {
+            throw new BadRequestException('Cadastre um portador para este cartão antes de lançar despesas.');
+        }
+
+        return mainHolder.id;
     }
 }

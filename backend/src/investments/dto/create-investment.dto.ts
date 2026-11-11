@@ -45,4 +45,9 @@ export class CreateInvestmentDto {
     @IsOptional()
     @IsNumber()
     quantity?: number;
+
+    // US stocks/ETFs: BRL per USD paid at purchase
+    @IsOptional()
+    @IsNumber()
+    purchaseExchangeRate?: number;
 }

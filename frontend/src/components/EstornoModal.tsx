@@ -1,5 +1,7 @@
 "use client";
 
+import { Money } from "@/components/Money";
+
 import { useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -71,8 +73,6 @@ export function EstornoModal({ transactionId, description, amount, onSuccess, ch
     };
 
     const isPartial = reverseAmount < amount;
-    const formatBRL = (v: number) =>
-        new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -93,7 +93,7 @@ export function EstornoModal({ transactionId, description, amount, onSuccess, ch
                     <div className="rounded-lg bg-gray-50 border px-4 py-3 space-y-0.5">
                         <p className="text-xs text-gray-500 uppercase tracking-wide">Transação original</p>
                         <p className="font-medium text-gray-900 text-sm truncate">{description}</p>
-                        <p className="text-emerald-700 font-semibold">{formatBRL(amount)}</p>
+                        <p className="text-emerald-700 font-semibold"><Money value={amount} /></p>
                     </div>
 
                     {/* Reverse amount */}
@@ -105,7 +105,7 @@ export function EstornoModal({ transactionId, description, amount, onSuccess, ch
                         />
                         {isPartial && (
                             <p className="text-xs text-amber-600">
-                                ⚠ Estorno parcial — {formatBRL(amount - reverseAmount)} permanece na fatura.
+                                ⚠ Estorno parcial — <Money value={amount - reverseAmount} /> permanece na fatura.
                             </p>
                         )}
                     </div>
@@ -133,7 +133,7 @@ export function EstornoModal({ transactionId, description, amount, onSuccess, ch
                         disabled={loading || reverseAmount <= 0}
                         className="bg-amber-500 hover:bg-amber-600 text-white"
                     >
-                        {loading ? "Criando..." : `Estornar ${formatBRL(reverseAmount)}`}
+                        {loading ? "Criando..." : <>Estornar <Money value={reverseAmount} /></>}
                     </Button>
                 </DialogFooter>
             </DialogContent>
