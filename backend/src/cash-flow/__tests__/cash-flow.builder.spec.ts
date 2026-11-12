@@ -226,5 +226,39 @@ describe('cash-flow builder', () => {
             ]);
             expect(result.summary.expenses).toEqual([1500]);
         });
+
+        it('includes passiveIncome in INCOME section with subRows and adds it to openIncome and projectedBalance', () => {
+            const result = buildCashFlow({
+                months: [
+                    {
+                        year: 2026,
+                        month: 11,
+                        transactions: [],
+                        cards: [],
+                        passiveIncome: {
+                            scheduledDividends: 20,
+                            projectedFiiDividends: 10,
+                            fixedIncomeNetYield: 470,
+                        },
+                    },
+                ],
+                openingBalance: 1000,
+                today,
+            });
+
+            const incomeSection = result.sections.find(s => s.key === 'INCOME');
+            const passiveRow = incomeSection?.rows.find(r => r.key === 'passive-income');
+            expect(passiveRow?.label).toBe('Rendimentos e Dividendos');
+            expect(passiveRow?.values).toEqual([500]);
+            expect(passiveRow?.open).toEqual([500]);
+            expect(passiveRow?.subRows?.map(r => [r.label, r.values])).toEqual([
+                ['Dividendos programados a receber', [20]],
+                ['Projeção de dividendos (FIIs)', [10]],
+                ['Retorno líquido de Renda Fixa', [470]],
+            ]);
+            expect(result.summary.income).toEqual([500]);
+            expect(result.summary.openIncome).toEqual([500]);
+            expect(result.summary.projectedBalance).toEqual([1500]);
+        });
     });
 });

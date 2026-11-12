@@ -14,6 +14,7 @@ import { BillsCard } from "@/components/dashboard/BillsCard";
 import { CardsCard, type DashCreditCard } from "@/components/dashboard/CardsCard";
 import { MoneyWhereCard, type DashAccount } from "@/components/dashboard/MoneyWhereCard";
 import { SpendingCard, type CategorySpend } from "@/components/dashboard/SpendingCard";
+import { YieldsProjectionCard, type InvestmentsProjectionData } from "@/components/dashboard/YieldsProjectionCard";
 import { type ApiInvestment, INVESTMENT_CLASSES, CLASS_ORDER, currentValueOf, grossValueOf, taxAmountOf } from "@/lib/investments";
 import { CHART_PALETTE } from "@/lib/charts";
 import type { CashFlowData } from "@/lib/cash-flow";
@@ -48,6 +49,7 @@ export default function DashboardPage() {
   const [categories, setCategories] = useState<ApiCategory[]>([]);
   const [expensesByCategory, setExpensesByCategory] = useState<ExpenseByCategory[]>([]);
   const [cashFlow, setCashFlow] = useState<CashFlowData | null>(null);
+  const [projections, setProjections] = useState<InvestmentsProjectionData | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const {
     layout,
@@ -82,6 +84,7 @@ export default function DashboardPage() {
       get(`/transactions?month=${month}&year=${year}`, setTransactions),
       get(`/reports/expenses-by-category?month=${month}&year=${year}`, setExpensesByCategory),
       get(`/cash-flow?month=${month}&year=${year}&months=12`, setCashFlow),
+      get(`/investments/projections?month=${month}&year=${year}&months=12`, setProjections),
       get("/accounts", setAccounts),
       get("/investments", setInvestments),
       get("/credit-cards", setCards),
@@ -127,6 +130,8 @@ export default function DashboardPage() {
         return <CardsCard key={`${year}-${month}`} cards={orderedCards} data={cashFlow} height={item.height} />;
       case "spending":
         return <SpendingCard categories={spending} income={breakdown?.income ?? 0} height={item.height} />;
+      case "yields-projection":
+        return <YieldsProjectionCard projection={projections} height={item.height} />;
       case "cashflow-chart":
         return (
           <Panel

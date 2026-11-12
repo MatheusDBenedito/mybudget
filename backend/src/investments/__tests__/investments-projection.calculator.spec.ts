@@ -1,0 +1,145 @@
+import { calculateInvestmentsProjection } from '../projections/investments-projection.calculator';
+
+describe('calculateInvestmentsProjection', () => {
+    const today = new Date('2026-11-12T12:00:00.000Z');
+
+    it('allocates scheduled PENDING dividends to their payment month and skips projected FII average in months already announced', () => {
+        const investments = [
+            {
+                id: 'fii-hglg',
+                name: 'HGLG11',
+                type: 'FII',
+                tickerCode: 'HGLG11',
+                quantity: 10,
+                investedAmount: 1600,
+                currentValue: 1600,
+            },
+            {
+                id: 'fii-btlg',
+                name: 'BTLG11',
+                type: 'FII',
+                tickerCode: 'BTLG11',
+                quantity: 10,
+                investedAmount: 1000,
+                currentValue: 1000,
+            },
+        ];
+
+        const dividends = [
+            // HGLG11 paid in Oct 2026 (R$ 1.10/share) and announced in Nov 2026 (exDate 2026-11-03 -> pays 10th business day = 2026-11-16 > today)
+            {
+                id: 'd1',
+                investmentId: 'fii-hglg',
+                tickerCode: 'HGLG11',
+                date: '2026-10-02T13:00:00.000Z',
+                amountPerShare: 1.10,
+                quantity: 10,
+                totalOriginal: 11.0,
+                currency: 'BRL',
+                totalBrl: 11.0,
+                investment: { id: 'fii-hglg', name: 'HGLG11', type: 'FII' },
+            },
+            {
+                id: 'd2',
+                investmentId: 'fii-hglg',
+                tickerCode: 'HGLG11',
+                date: '2026-11-03T13:00:00.000Z',
+                amountPerShare: 1.10,
+                quantity: 10,
+                totalOriginal: 11.0,
+                currency: 'BRL',
+                totalBrl: 11.0,
+                investment: { id: 'fii-hglg', name: 'HGLG11', type: 'FII' },
+            },
+            // BTLG11 paid in Oct 2026 (R$ 0.80/share -> pays 2026-10-26 <= today), not yet announced for Nov 2026
+            {
+                id: 'd3',
+                investmentId: 'fii-btlg',
+                tickerCode: 'BTLG11',
+                date: '2026-10-15T13:00:00.000Z',
+                amountPerShare: 0.80,
+                quantity: 10,
+                totalOriginal: 8.0,
+                currency: 'BRL',
+                totalBrl: 8.0,
+                investment: { id: 'fii-btlg', name: 'BTLG11', type: 'FII' },
+            },
+        ];
+
+        const result = calculateInvestmentsProjection({
+            investments,
+            dividends,
+            startMonth: 11,
+            startYear: 2026,
+            monthsCount: 12,
+            today,
+        });
+
+        expect(result.summary.scheduledTotalBrl).toBe(11.0);
+        expect(result.summary.scheduledCount).toBe(1);
+        expect(result.summary.fiiMonthlyAverageBrl).toBe(19.0); // 11.0 (HGLG11) + 8.0 (BTLG11)
+
+        // Month 0 (Nov/2026): HGLG11 is in scheduledDividends (11.0), only BTLG11 is in projectedFiiDividends (8.0)
+        expect(result.months[0].scheduledDividends).toBe(11.0);
+        expect(result.months[0].projectedFiiDividends).toBe(8.0);
+        expect(result.months[0].total).toBe(19.0);
+
+        // Month 1..11 (Dec/2026..Oct/2027): both FIIs are in projectedFiiDividends (19.0)
+        expect(result.months[1].scheduledDividends).toBe(0);
+        expect(result.months[1].projectedFiiDividends).toBe(19.0);
+    });
+
+    it('projects net fixed income monthly yield discounting regressive IR tax', () => {
+        const investments = [
+            {
+                id: 'cdb-1',
+                name: 'CDB 100% CDI',
+                type: 'FIXED_INCOME',
+                investedAmount: 10000,
+                currentValue: 10000,
+                grossValue: 10000,
+                investmentDate: '2024-01-01T00:00:00.000Z', // > 720 days -> 15% IR
+                cdiPercentage: 100,
+            },
+        ];
+
+        const result = calculateInvestmentsProjection({
+            investments,
+            dividends: [],
+            startMonth: 11,
+            startYear: 2026,
+            monthsCount: 12,
+            today,
+            cdiDailyRate: 0.00055,
+        });
+
+        // On 2026-11-12, Nov/2026 has 19 total ANBIMA business days, 8 elapsed (counting Nov 12), and 11 remaining
+        expect(result.months[0].businessDaysTotal).toBe(19);
+        expect(result.months[0].businessDaysElapsed).toBe(8);
+        expect(result.months[0].businessDaysRemaining).toBe(11);
+        expect(result.months[0].fixedIncomeGrossYield).toBeGreaterThan(50);
+        // At 15% IR, net is 85% of gross
+        expect(result.months[0].fixedIncomeNetYield).toBeCloseTo(
+            result.months[0].fixedIncomeGrossYield * 0.85,
+            1,
+        );
+        expect(result.summary.fixedIncomeNet12mBrl).toBeGreaterThan(1100);
+
+        // Next business day (2026-11-13 -> 9 elapsed, 10 remaining), current month remaining yield decreases
+        const nextDayResult = calculateInvestmentsProjection({
+            investments,
+            dividends: [],
+            startMonth: 11,
+            startYear: 2026,
+            monthsCount: 12,
+            today: new Date('2026-11-13T12:00:00.000Z'),
+            cdiDailyRate: 0.00055,
+        });
+        expect(nextDayResult.months[0].businessDaysElapsed).toBe(9);
+        expect(nextDayResult.months[0].businessDaysRemaining).toBe(10);
+        expect(nextDayResult.months[0].fixedIncomeNetYield).toBeLessThan(
+            result.months[0].fixedIncomeNetYield,
+        );
+    });
+});
+
