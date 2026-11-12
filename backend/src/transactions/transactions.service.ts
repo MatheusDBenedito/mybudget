@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
+import { buildTransactionInstallments } from './helpers/installment-transactions.helper';
 
 const seriesKey = (type: string, description: string) =>
     `${type}:${description.trim().toLocaleLowerCase('pt-BR')}`;
@@ -18,15 +20,7 @@ export class TransactionsService {
     constructor(private readonly prisma: PrismaService) { }
 
     async create(createTransactionDto: CreateTransactionDto) {
-        let { accountId, ...rest } = createTransactionDto;
-
-        // Auto-determine status based on date if not explicitly provided
-        if (!rest.status) {
-            const transactionDate = new Date(rest.date);
-            const today = new Date();
-            today.setHours(23, 59, 59, 999);
-            rest.status = transactionDate <= today ? 'PAID' : 'PENDING';
-        }
+        let { accountId, installments, ...rest } = createTransactionDto;
 
         if (!accountId) {
             const account = await this.prisma.account.findFirst();
@@ -36,23 +30,80 @@ export class TransactionsService {
             accountId = account.id;
         }
 
-        const transaction = await this.prisma.transaction.create({
-            data: {
-                ...rest,
-                accountId,
-            },
-        });
+        const installmentsCount = rest.isFixed ? 1 : Math.min(480, Math.max(1, installments ?? 1));
 
-        // If transaction is PAID, update account balance
-        if (transaction.status === 'PAID') {
-            const delta = transaction.type === 'INCOME' ? transaction.amount : -transaction.amount;
-            await this.prisma.account.update({
-                where: { id: transaction.accountId },
-                data: { balance: { increment: delta } },
+        if (installmentsCount === 1) {
+            // Auto-determine status based on date if not explicitly provided
+            if (!rest.status) {
+                const transactionDate = new Date(rest.date);
+                const today = new Date();
+                today.setHours(23, 59, 59, 999);
+                rest.status = transactionDate <= today ? 'PAID' : 'PENDING';
+            }
+
+            const transaction = await this.prisma.transaction.create({
+                data: {
+                    ...rest,
+                    installments: 1,
+                    accountId,
+                },
             });
+
+            // If transaction is PAID, update account balance
+            if (transaction.status === 'PAID') {
+                const delta = this.balanceDelta(transaction.type, transaction.amount);
+                await this.prisma.account.update({
+                    where: { id: transaction.accountId },
+                    data: { balance: { increment: delta } },
+                });
+            }
+
+            return transaction;
         }
 
-        return transaction;
+        const drafts = buildTransactionInstallments({
+            description: rest.description,
+            amount: rest.amount,
+            date: new Date(rest.date),
+            explicitStatus: rest.status,
+            installments: installmentsCount,
+        });
+        const installmentGroupId = randomUUID();
+
+        return this.prisma.$transaction(async (db) => {
+            const created = [];
+            let paidDelta = 0;
+
+            for (const draft of drafts) {
+                const tx = await db.transaction.create({
+                    data: {
+                        description: draft.description,
+                        amount: draft.amount,
+                        date: draft.date,
+                        type: rest.type,
+                        status: draft.status,
+                        isFixed: false,
+                        installments: draft.installments,
+                        installmentGroupId,
+                        accountId,
+                        categoryId: rest.categoryId,
+                    },
+                });
+                created.push(tx);
+                if (tx.status === 'PAID') {
+                    paidDelta += this.balanceDelta(tx.type, tx.amount);
+                }
+            }
+
+            if (paidDelta !== 0) {
+                await db.account.update({
+                    where: { id: accountId },
+                    data: { balance: { increment: paidDelta } },
+                });
+            }
+
+            return created;
+        });
     }
 
     async findAll(month?: number, year?: number) {
@@ -414,6 +465,22 @@ export class TransactionsService {
             : new Date(tx.date.getFullYear(), tx.date.getMonth(), 1);
 
         if (!tx.isFixed) {
+            if (tx.installmentGroupId && scope === 'series') {
+                const groupRows = await this.prisma.transaction.findMany({
+                    where: {
+                        installmentGroupId: tx.installmentGroupId,
+                        date: { gte: monthStart },
+                    },
+                });
+                return this.prisma.$transaction(async (db) => {
+                    for (const row of groupRows) {
+                        if (row.status === 'PAID') await this.reverseBalance(db, row);
+                        await db.transaction.delete({ where: { id: row.id } });
+                    }
+                    return { removed: groupRows.length };
+                });
+            }
+
             return this.prisma.$transaction(async (db) => {
                 if (tx.status === 'PAID') await this.reverseBalance(db, tx);
                 return db.transaction.delete({ where: { id: tx.id } });

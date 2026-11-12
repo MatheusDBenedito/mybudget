@@ -95,6 +95,7 @@ export class CashFlowService {
                     type: t.type,
                     status: t.status,
                     isFixed: t.isFixed,
+                    installmentGroupId: t.installmentGroupId,
                     category: t.category ? { name: t.category.name } : null,
                 })),
                 cards: cards.map((c, i) => {

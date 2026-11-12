@@ -25,11 +25,19 @@ export function DeleteTransactionDialog({ transaction, onCancel, onConfirm }: De
     const [scope, setScope] = useState<DeleteScope>("single");
     const isIncome = transaction?.type === "INCOME";
     const paid = transaction?.status === "PAID";
+    const isFixed = !!transaction?.isFixed;
+    const isInstallment = !isFixed && !!transaction?.installmentGroupId;
+    const hasSeriesScope = isFixed || isInstallment;
 
-    const options: { value: DeleteScope; label: string; hint: string }[] = [
-        { value: "single", label: "Só este mês", hint: "Os outros meses continuam com este lançamento." },
-        { value: "series", label: "Este e os próximos meses", hint: "Deixa de ser projetado daqui para frente." },
-    ];
+    const options: { value: DeleteScope; label: string; hint: string }[] = isInstallment
+        ? [
+            { value: "single", label: "Só esta parcela", hint: "As demais parcelas continuam programadas." },
+            { value: "series", label: "Esta e as próximas parcelas", hint: "Remove esta parcela e todas as parcelas futuras." },
+        ]
+        : [
+            { value: "single", label: "Só este mês", hint: "Os outros meses continuam com este lançamento." },
+            { value: "series", label: "Este e os próximos meses", hint: "Deixa de ser projetado daqui para frente." },
+        ];
 
     return (
         <AlertDialog open={!!transaction} onOpenChange={(open) => { if (!open) { onCancel(); setScope("single"); } }}>
@@ -53,9 +61,11 @@ export function DeleteTransactionDialog({ transaction, onCancel, onConfirm }: De
                     </AlertDialogDescription>
                 </AlertDialogHeader>
 
-                {transaction?.isFixed && (
+                {hasSeriesScope && (
                     <fieldset className="space-y-2">
-                        <legend className="mb-2 text-sm font-medium">Este lançamento é fixo. Excluir:</legend>
+                        <legend className="mb-2 text-sm font-medium">
+                            {isInstallment ? "Este lançamento é parcelado. Excluir:" : "Este lançamento é fixo. Excluir:"}
+                        </legend>
                         {options.map(option => (
                             <label
                                 key={option.value}
@@ -85,7 +95,7 @@ export function DeleteTransactionDialog({ transaction, onCancel, onConfirm }: De
                     <AlertDialogCancel>Cancelar</AlertDialogCancel>
                     <AlertDialogAction
                         className="bg-red-600 text-white hover:bg-red-700"
-                        onClick={() => { onConfirm(transaction?.isFixed ? scope : "single"); setScope("single"); }}
+                        onClick={() => { onConfirm(hasSeriesScope ? scope : "single"); setScope("single"); }}
                     >
                         Excluir
                     </AlertDialogAction>

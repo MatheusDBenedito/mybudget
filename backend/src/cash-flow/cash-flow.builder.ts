@@ -6,6 +6,7 @@ export type CashFlowTxInput = {
     type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
     status: 'PENDING' | 'PAID' | 'CANCELLED';
     isFixed: boolean;
+    installmentGroupId?: string | null;
     category?: { name: string } | null;
 };
 
@@ -168,15 +169,22 @@ function groupRows(months: CashFlowMonthInput[], pick: (m: CashFlowMonthInput) =
 
 const normalizeKey = (text: string) => text.trim().toLocaleLowerCase('pt-BR');
 
+const stripInstallmentSuffix = (label: string) => label.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim();
+
 const sumColumn = (rows: CashFlowRow[], pick: (r: CashFlowRow) => number[], i: number) =>
     round(rows.reduce((acc, r) => acc + pick(r)[i], 0));
 
 export function buildCashFlow({ months, leadIn = [], openingBalance, today }: BuildCashFlowInput): CashFlowResult {
-    // Every section lists the lançamentos by description, so a new entry shows up as its own row
+    // Every section lists the lançamentos by description, so a new entry shows up as its own row.
+    // Installments sharing an installmentGroupId are grouped into a single row across their months.
     const txRows = (m: CashFlowMonthInput, filter: (tx: CashFlowTxInput) => boolean): RowItem[] =>
         m.transactions.filter(tx => isActive(tx) && filter(tx)).map(tx => {
-            const label = tx.description.trim();
-            return { key: normalizeKey(label), label, amount: tx.amount, open: tx.status === 'PENDING' };
+            const rawLabel = tx.description.trim();
+            if (tx.installmentGroupId) {
+                const label = stripInstallmentSuffix(rawLabel) || rawLabel;
+                return { key: `installment:${tx.installmentGroupId}`, label, amount: tx.amount, open: tx.status === 'PENDING' };
+            }
+            return { key: normalizeKey(rawLabel), label: rawLabel, amount: tx.amount, open: tx.status === 'PENDING' };
         });
 
     const cardRows = groupRows(months, m => m.cards.map(c => ({

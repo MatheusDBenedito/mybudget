@@ -260,5 +260,25 @@ describe('cash-flow builder', () => {
             expect(result.summary.openIncome).toEqual([500]);
             expect(result.summary.projectedBalance).toEqual([1500]);
         });
+
+        it('groups installment transactions sharing installmentGroupId into a single row across months', () => {
+            const result = buildCashFlow({
+                months: [
+                    month(11, [tx({ description: 'IPTU 2026 (1/2)', amount: 250, status: 'PAID', installmentGroupId: 'grp-iptu' })]),
+                    month(12, [tx({ description: 'IPTU 2026 (2/2)', amount: 250, status: 'PENDING', installmentGroupId: 'grp-iptu' })]),
+                ],
+                openingBalance: 1000,
+                today,
+            });
+
+            const variable = result.sections.find(s => s.key === 'VARIABLE')!;
+            expect(variable.rows).toHaveLength(1);
+            expect(variable.rows[0]).toMatchObject({
+                label: 'IPTU 2026',
+                values: [250, 250],
+                open: [0, 250],
+                total: 500,
+            });
+        });
     });
 });
