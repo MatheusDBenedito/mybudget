@@ -17,6 +17,8 @@ export type ApiTransaction = {
     type: "INCOME" | "EXPENSE";
     status: "PAID" | "PENDING" | "CANCELLED";
     isFixed?: boolean;
+    installments?: number;
+    installmentGroupId?: string | null;
     accountId?: string;
     categoryId?: string | null;
     category?: { id?: string; name: string; color: string | null; icon?: string } | null;

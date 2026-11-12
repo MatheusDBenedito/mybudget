@@ -6,6 +6,7 @@ import {
     Patch,
     Param,
     Delete,
+    Query,
 } from '@nestjs/common';
 import { InvestmentsService } from './investments.service';
 import { CreateInvestmentDto } from './dto/create-investment.dto';
@@ -28,6 +29,18 @@ export class InvestmentsController {
     @Get('dividends')
     findAllDividends() {
         return this.investmentsService.findAllDividends();
+    }
+
+    @Get('projections')
+    getProjections(
+        @Query('month') month?: string,
+        @Query('year') year?: string,
+        @Query('months') months?: string,
+    ) {
+        const m = month ? parseInt(month, 10) : undefined;
+        const y = year ? parseInt(year, 10) : undefined;
+        const count = months ? Math.min(Math.max(parseInt(months, 10) || 12, 1), 24) : 12;
+        return this.investmentsService.getProjections(m, y, count);
     }
 
     @Post('dividends/sync')

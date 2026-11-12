@@ -8,6 +8,7 @@ export const DASHBOARD_BLOCK_IDS = [
     "spending",
     "cashflow-chart",
     "investments-chart",
+    "yields-projection",
 ] as const;
 
 export type DashboardBlockId = (typeof DASHBOARD_BLOCK_IDS)[number];
@@ -34,6 +35,7 @@ export const DASHBOARD_BLOCK_TITLES: Record<DashboardBlockId, string> = {
     spending: "Gastos por categoria",
     "cashflow-chart": "Recebimentos x Despesas",
     "investments-chart": "Investimentos",
+    "yields-projection": "Projeção de Rendimentos (12m)",
 };
 
 export const DEFAULT_LAYOUT: DashboardLayoutItem[] = [
@@ -42,6 +44,7 @@ export const DEFAULT_LAYOUT: DashboardLayoutItem[] = [
     { id: "moneywhere", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "cards", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "spending", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
+    { id: "yields-projection", width: 100, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "cashflow-chart", width: 67, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "investments-chart", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
 ];

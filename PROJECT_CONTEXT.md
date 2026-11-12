@@ -172,6 +172,7 @@ myBudget/
 - **Investments, Dividends & Miles:**
   - `GET /investments`, `POST /investments`, `GET /investments/:id`, `PATCH /investments/:id`, `DELETE /investments/:id`
   - `GET /investments/dividends`, `POST /investments/dividends/sync`
+  - `GET /investments/projections` (`month`, `year`, `months` — projeção de 12 meses de dividendos programados a receber, média mensal de FIIs e retorno líquido de Renda Fixa)
   - `GET /miles`, `POST /miles`, `PATCH /miles/:id`, `DELETE /miles/:id`
 
 ---
@@ -269,6 +270,16 @@ Qualquer plano executado neste projeto deve preservar estas regras:
 - **Contas em Dólar (`USD`), Patrimônio Bruto vs. Líquido e Saldo Projetado Consolidado:**
   - `backend/src/accounts/accounts.service.ts`, `frontend/src/lib/accounts.ts`, `AccountManager.tsx` e `MoneyWhereCard.tsx`: suporte a contas em `USD` (`currency: "USD"`, `balanceUsd`, `investedBrl`, `purchaseExchangeRate`) com flutuação automática pelo `USD-BRL` atual; `MoneyWhereCard.tsx` exibe o valor bruto no topo, tooltip com detalhamento Bruto / Impostos / Líquido no canto superior direito e rodapé com subtração de impostos e valor líquido.
   - `backend/src/cash-flow/cash-flow.service.ts` e `cash-flow.builder.ts`: `openingBalance` (`SALDO` inicial do mês atual na linha **Saldo projetado**) soma o valor bruto de todas as contas + cofrinhos + investimentos e subtrai as despesas pendentes em aberto do mês atual (`openNet`).
+- **Projeção de Rendimentos e Dividendos — 12 Meses (`feat/projecao-rendimentos-e-dividendos`):**
+  - `backend/src/investments/projections/investments-projection.calculator.ts`, `investments.service.ts` e `investments.controller.ts`: endpoint `GET /investments/projections` projetando 12 meses de dividendos programados a receber (`PENDING`), média mensal de dividendos de FIIs (sem duplicar ativos já anunciados no mês) e retorno líquido mensal de Renda Fixa (descontado o IR regressivo por idade do lote e calculando o mês atual apenas pelos **dias úteis restantes** do mês via `countBusinessDays`, diminuindo diariamente à medida que os dias úteis passam).
+  - `backend/src/cash-flow/cash-flow.builder.ts`, `cash-flow.service.ts` e `frontend/src/components/cash-flow/CashFlowSheet.tsx`: linha expansível **Rendimentos e Dividendos** na seção **Recebimentos** da Visão Geral do Fluxo de Caixa com as 3 sub-linhas projetadas somando aos recebimentos e saldo projetado.
+  - `frontend/src/components/dashboard/YieldsProjectionCard.tsx`, `frontend/src/lib/dashboard-layout.ts` e `frontend/src/app/page.tsx`: novo card **Projeção de rendimentos — próximos 12 meses** no Resumo (`id: "yields-projection"`), exibindo também os dias úteis corridos vs. restantes do mês atual.
+- **Transações Parceladas em Conta (`feat/transacao-parcelada`):**
+  - `backend/prisma/schema.prisma`, `backend/src/transactions/dto/create-transaction.dto.ts`, `transactions/helpers/installment-transactions.helper.ts` e `transactions.service.ts`: `Transaction` recebeu `installments` (`1..480`) e `installmentGroupId`. Lançamentos não fixos (ex.: IPTU, IPVA, financiamento de carro em 48x) podem ser criados em múltiplas parcelas com distribuição exata de centavos (`distributeInstallments`), avanço mensal com clamp de fim de mês (`addMonthsClamped`), status automático por parcela (`PAID` até hoje, `PENDING` futuras) e exclusão opcional de apenas a parcela ou desta e das próximas (`scope: 'series'`).
+  - `backend/src/cash-flow/cash-flow.builder.ts` e `cash-flow.service.ts`: parcelas com o mesmo `installmentGroupId` são consolidadas em uma única linha na visão geral de 12 meses removendo o sufixo `(k/N)`.
+  - `frontend/src/components/TransactionModal.tsx` e `DeleteTransactionDialog.tsx`: campo numérico aberto de `Qtd. Parcelas` (`1..480`, mutuamente exclusivo com `Conta fixa`), preview do valor por parcela e opções de exclusão por parcela ou série.
+- **Backup e Carga Inicial de Registros (`backend/src/seed/export-backup.ts`, `import-backup.ts`):**
+  - Scripts `npm run db:export` e `npm run db:restore` no `backend` para salvar todas as 16 tabelas do PostgreSQL em `backend/prisma/backup-data.json` e restaurar a carga completa em uma transação Prisma preservando IDs, relacionamentos e datas.
 
 
 

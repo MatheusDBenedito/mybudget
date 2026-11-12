@@ -6,6 +6,7 @@ export type CashFlowTxInput = {
     type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
     status: 'PENDING' | 'PAID' | 'CANCELLED';
     isFixed: boolean;
+    installmentGroupId?: string | null;
     category?: { name: string } | null;
 };
 
@@ -25,11 +26,18 @@ export type CashFlowCardInput = {
     holders?: CashFlowCardHolderInput[];
 };
 
+export type CashFlowPassiveIncomeInput = {
+    scheduledDividends: number;
+    projectedFiiDividends: number;
+    fixedIncomeNetYield: number;
+};
+
 export type CashFlowMonthInput = {
     year: number;
     month: number; // 1-12
     transactions: CashFlowTxInput[];
     cards: CashFlowCardInput[];
+    passiveIncome?: CashFlowPassiveIncomeInput;
 };
 
 export type CashFlowSectionKey = 'INCOME' | 'FIXED' | 'CARDS' | 'VARIABLE';
@@ -108,9 +116,12 @@ export function isCardInvoiceOpen(m: CashFlowMonthInput, card: CashFlowCardInput
     return startOfDay(due) >= startOfDay(today);
 }
 
+const passiveTotal = (p?: CashFlowPassiveIncomeInput): number =>
+    p ? Math.max(0, p.scheduledDividends) + Math.max(0, p.projectedFiiDividends) + Math.max(0, p.fixedIncomeNetYield) : 0;
+
 /** Income minus every expense of the month (fixed, variable and card invoices), regardless of status. */
 export function monthNet(m: CashFlowMonthInput): number {
-    let net = 0;
+    let net = passiveTotal(m.passiveIncome);
     for (const tx of m.transactions) {
         if (!isActive(tx)) continue;
         net += tx.type === 'INCOME' ? tx.amount : -tx.amount;
@@ -121,10 +132,11 @@ export function monthNet(m: CashFlowMonthInput): number {
 
 /**
  * What still has to happen in a month: pending transactions (paid ones are already in the account
- * balance) and card invoices not yet due.
+ * balance), projected passive income from the current month onward, and card invoices not yet due.
  */
 export function openNet(m: CashFlowMonthInput, today: Date): number {
-    let net = 0;
+    const currentIdx = monthIndex(today.getFullYear(), today.getMonth() + 1);
+    let net = monthIndex(m.year, m.month) >= currentIdx ? passiveTotal(m.passiveIncome) : 0;
     for (const tx of m.transactions) {
         if (!isActive(tx) || tx.status !== 'PENDING') continue;
         net += tx.type === 'INCOME' ? tx.amount : -tx.amount;
@@ -157,15 +169,22 @@ function groupRows(months: CashFlowMonthInput[], pick: (m: CashFlowMonthInput) =
 
 const normalizeKey = (text: string) => text.trim().toLocaleLowerCase('pt-BR');
 
+const stripInstallmentSuffix = (label: string) => label.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim();
+
 const sumColumn = (rows: CashFlowRow[], pick: (r: CashFlowRow) => number[], i: number) =>
     round(rows.reduce((acc, r) => acc + pick(r)[i], 0));
 
 export function buildCashFlow({ months, leadIn = [], openingBalance, today }: BuildCashFlowInput): CashFlowResult {
-    // Every section lists the lançamentos by description, so a new entry shows up as its own row
+    // Every section lists the lançamentos by description, so a new entry shows up as its own row.
+    // Installments sharing an installmentGroupId are grouped into a single row across their months.
     const txRows = (m: CashFlowMonthInput, filter: (tx: CashFlowTxInput) => boolean): RowItem[] =>
         m.transactions.filter(tx => isActive(tx) && filter(tx)).map(tx => {
-            const label = tx.description.trim();
-            return { key: normalizeKey(label), label, amount: tx.amount, open: tx.status === 'PENDING' };
+            const rawLabel = tx.description.trim();
+            if (tx.installmentGroupId) {
+                const label = stripInstallmentSuffix(rawLabel) || rawLabel;
+                return { key: `installment:${tx.installmentGroupId}`, label, amount: tx.amount, open: tx.status === 'PENDING' };
+            }
+            return { key: normalizeKey(rawLabel), label: rawLabel, amount: tx.amount, open: tx.status === 'PENDING' };
         });
 
     const cardRows = groupRows(months, m => m.cards.map(c => ({
@@ -188,8 +207,49 @@ export function buildCashFlow({ months, leadIn = [], openingBalance, today }: Bu
         return subRows.length > 1 ? { ...row, subRows } : row;
     });
 
+    const currentIndex = monthIndex(today.getFullYear(), today.getMonth() + 1);
+
+    const incomeRows = groupRows(months, m => txRows(m, tx => tx.type === 'INCOME'));
+    const hasPassiveIncome = months.some(m => passiveTotal(m.passiveIncome) > 0);
+    if (hasPassiveIncome) {
+        const isMonthOpen = (m: CashFlowMonthInput) => monthIndex(m.year, m.month) >= currentIndex;
+        const buildPassiveSubRow = (
+            key: string,
+            label: string,
+            pickVal: (p: CashFlowPassiveIncomeInput) => number,
+        ): CashFlowRow => {
+            const values = months.map(m => round(m.passiveIncome ? Math.max(0, pickVal(m.passiveIncome)) : 0));
+            const open = months.map((m, i) => (isMonthOpen(m) ? values[i] : 0));
+            return {
+                key,
+                label,
+                values,
+                open,
+                total: round(values.reduce((a, b) => a + b, 0)),
+            };
+        };
+
+        const subRows: CashFlowRow[] = [
+            buildPassiveSubRow('passive-scheduled', 'Dividendos programados a receber', p => p.scheduledDividends),
+            buildPassiveSubRow('passive-fii', 'Projeção de dividendos (FIIs)', p => p.projectedFiiDividends),
+            buildPassiveSubRow('passive-fixed-income', 'Retorno líquido de Renda Fixa', p => p.fixedIncomeNetYield),
+        ];
+
+        const values = months.map((_, i) => round(subRows.reduce((s, r) => s + r.values[i], 0)));
+        const open = months.map((m, i) => (isMonthOpen(m) ? values[i] : 0));
+
+        incomeRows.push({
+            key: 'passive-income',
+            label: 'Rendimentos e Dividendos',
+            values,
+            open,
+            total: round(values.reduce((a, b) => a + b, 0)),
+            subRows,
+        });
+    }
+
     const sectionRows: Record<CashFlowSectionKey, CashFlowRow[]> = {
-        INCOME: groupRows(months, m => txRows(m, tx => tx.type === 'INCOME')),
+        INCOME: incomeRows,
         FIXED: groupRows(months, m => txRows(m, tx => tx.type === 'EXPENSE' && tx.isFixed)),
         // Card rows are listed even when empty so every card shows up in the sheet
         CARDS: cardRows,
@@ -219,7 +279,6 @@ export function buildCashFlow({ months, leadIn = [], openingBalance, today }: Bu
 
     // Running balance starts from today's gross total (accounts + investments) and adds what is still open
     // (pending income minus pending expenses/open card invoices) from the current month onward.
-    const currentIndex = monthIndex(today.getFullYear(), today.getMonth() + 1);
     let running = round(openingBalance);
 
     for (const m of leadIn) {

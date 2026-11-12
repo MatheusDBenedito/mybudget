@@ -59,6 +59,27 @@ export class CashFlowService {
         const start = monthIndex(year, month);
         const current = monthIndex(today.getFullYear(), today.getMonth() + 1);
 
+        // Compute passive income projections covering both leadIn (if start > current) and the requested window
+        const projStartIdx = Math.min(start, current);
+        const projEndIdx = start + count;
+        const projStart = fromIndex(projStartIdx);
+        const projCount = Math.max(count, projEndIdx - projStartIdx);
+        const projections = await this.investments.getProjections(
+            projStart.month,
+            projStart.year,
+            projCount,
+            today,
+            investments,
+        );
+        const passiveByMonth = new Map<string, { scheduledDividends: number; projectedFiiDividends: number; fixedIncomeNetYield: number }>();
+        for (const p of projections.months) {
+            passiveByMonth.set(`${p.year}-${p.month}`, {
+                scheduledDividends: p.scheduledDividends,
+                projectedFiiDividends: p.projectedFiiDividends,
+                fixedIncomeNetYield: p.fixedIncomeNetYield,
+            });
+        }
+
         const loadMonth = async (index: number): Promise<CashFlowMonthInput> => {
             const m = fromIndex(index);
             const [transactions, invoices] = await Promise.all([
@@ -67,12 +88,14 @@ export class CashFlowService {
             ]);
             return {
                 ...m,
+                passiveIncome: passiveByMonth.get(`${m.year}-${m.month}`),
                 transactions: transactions.map(t => ({
                     description: t.description,
                     amount: t.amount,
                     type: t.type,
                     status: t.status,
                     isFixed: t.isFixed,
+                    installmentGroupId: t.installmentGroupId,
                     category: t.category ? { name: t.category.name } : null,
                 })),
                 cards: cards.map((c, i) => {

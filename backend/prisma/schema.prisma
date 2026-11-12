@@ -70,14 +70,16 @@ model Category {
 }
 
 model Transaction {
-  id          String   @id @default(uuid())
-  description String
-  amount      Float
-  date        DateTime
-  type        TransactionType
-  status      TransactionStatus @default(PENDING)
-  isFixed     Boolean  @default(false)
-  fixedUntil  DateTime? // Conta fixa encerrada: não é mais projetada em meses depois desta data
+  id                 String   @id @default(uuid())
+  description        String
+  amount             Float
+  date               DateTime
+  type               TransactionType
+  status             TransactionStatus @default(PENDING)
+  isFixed            Boolean  @default(false)
+  fixedUntil         DateTime? // Conta fixa encerrada: não é mais projetada em meses depois desta data
+  installments       Int      @default(1)
+  installmentGroupId String?
   
   accountId   String
   account     Account  @relation(fields: [accountId], references: [id])
@@ -87,6 +89,8 @@ model Transaction {
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([installmentGroupId])
 }
 
 model CreditCard {

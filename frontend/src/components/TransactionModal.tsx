@@ -48,6 +48,7 @@ const transactionSchema = z.object({
     accountId: z.string().min(1, "Selecione uma conta."),
     type: z.enum(["INCOME", "EXPENSE"]),
     isFixed: z.boolean(),
+    installments: z.number().int().min(1, "Mínimo de 1 parcela.").max(480, "Máximo de 480 parcelas."),
     date: z.date({ message: "A data é obrigatória." }),
 });
 
@@ -69,6 +70,8 @@ export type EditableTransaction = {
     type: "INCOME" | "EXPENSE";
     status?: "PAID" | "PENDING" | "CANCELLED";
     isFixed?: boolean;
+    installments?: number;
+    installmentGroupId?: string | null;
     accountId?: string;
     categoryId?: string | null;
 };
@@ -97,6 +100,7 @@ export function TransactionModal({ children, initialData, onSuccess }: Transacti
             accountId: initialData?.accountId ?? "",
             type: initialData?.type ?? "EXPENSE",
             isFixed: initialData?.isFixed ?? false,
+            installments: initialData?.installments ?? 1,
             date: initialData ? new Date(initialData.date) : new Date(),
         },
     });
@@ -129,6 +133,7 @@ export function TransactionModal({ children, initialData, onSuccess }: Transacti
                     accountId: defaultAccId,
                     type: initialData?.type ?? "EXPENSE",
                     isFixed: initialData?.isFixed ?? false,
+                    installments: initialData?.installments ?? 1,
                     date: initialData ? new Date(initialData.date) : new Date(),
                 });
                 setEditScope("single");
@@ -161,6 +166,7 @@ export function TransactionModal({ children, initialData, onSuccess }: Transacti
                 type: data.type,
                 accountId: data.accountId,
                 isFixed: data.isFixed,
+                ...(!isEditing && !data.isFixed ? { installments: data.installments } : {}),
                 ...(data.categoryId ? { categoryId: data.categoryId } : {}),
                 ...(isEditing && initialData?.isFixed ? { scope: editScope } : {}),
             };
@@ -181,6 +187,7 @@ export function TransactionModal({ children, initialData, onSuccess }: Transacti
                         accountId: defaultSettlementAccount(accounts, "EXPENSE")?.id ?? "",
                         type: "EXPENSE",
                         isFixed: false,
+                        installments: 1,
                         date: new Date(),
                     });
                 }
@@ -233,23 +240,78 @@ export function TransactionModal({ children, initialData, onSuccess }: Transacti
                             )}
                         />
 
-                        <FormField
-                            control={form.control}
-                            name="amount"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Valor (R$)</FormLabel>
-                                    <FormControl>
-                                        <CurrencyInput
-                                            placeholder="0,00"
-                                            value={field.value || ""}
-                                            onChange={(val) => field.onChange(val || 0)}
-                                        />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
+                        <div className={cn("grid gap-4", !isEditing ? "grid-cols-2" : "grid-cols-1")}>
+                            <FormField
+                                control={form.control}
+                                name="amount"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>
+                                            {!isEditing && form.watch("installments") > 1 ? "Valor total (R$)" : "Valor (R$)"}
+                                        </FormLabel>
+                                        <FormControl>
+                                            <CurrencyInput
+                                                placeholder="0,00"
+                                                value={field.value || ""}
+                                                onChange={(val) => field.onChange(val || 0)}
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            {!isEditing && (
+                                <FormField
+                                    control={form.control}
+                                    name="installments"
+                                    render={({ field }) => {
+                                        const isFixed = form.watch("isFixed");
+                                        const amount = form.watch("amount") || 0;
+                                        const count = field.value || 1;
+                                        return (
+                                            <FormItem>
+                                                <FormLabel>Qtd. Parcelas</FormLabel>
+                                                <FormControl>
+                                                    <div className="relative">
+                                                        <Input
+                                                            type="number"
+                                                            min={1}
+                                                            max={480}
+                                                            step={1}
+                                                            disabled={isFixed}
+                                                            className={isFixed ? "bg-muted cursor-not-allowed" : ""}
+                                                            value={field.value ?? 1}
+                                                            onChange={(e) => {
+                                                                const raw = parseInt(e.target.value, 10);
+                                                                const n = Number.isFinite(raw) ? Math.max(1, raw) : 1;
+                                                                field.onChange(n);
+                                                                if (n > 1) form.setValue("isFixed", false);
+                                                            }}
+                                                        />
+                                                        {isFixed && (
+                                                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground">
+                                                                Fixo
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </FormControl>
+                                                {count > 1 && amount > 0 && (
+                                                    <p className="text-[11px] text-muted-foreground tabular-nums">
+                                                        {count}x de{" "}
+                                                        {new Intl.NumberFormat("pt-BR", {
+                                                            style: "currency",
+                                                            currency: "BRL",
+                                                        }).format(amount / count)}
+                                                    </p>
+                                                )}
+                                                <FormMessage />
+                                            </FormItem>
+                                        );
+                                    }}
+                                />
                             )}
-                        />
+                        </div>
 
                         <FormField
                             control={form.control}
@@ -289,26 +351,36 @@ export function TransactionModal({ children, initialData, onSuccess }: Transacti
                         <FormField
                             control={form.control}
                             name="isFixed"
-                            render={({ field }) => (
-                                <FormItem className="flex items-center gap-3 rounded-lg border p-3">
-                                    <FormControl>
-                                        <input
-                                            type="checkbox"
-                                            checked={field.value}
-                                            onChange={field.onChange}
-                                            className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
-                                        />
-                                    </FormControl>
-                                    <div className="space-y-0.5">
-                                        <FormLabel className="text-sm font-medium cursor-pointer">
-                                            Conta fixa
-                                        </FormLabel>
-                                        <p className="text-xs text-gray-500">
-                                            Será projetada automaticamente nos próximos meses
-                                        </p>
-                                    </div>
-                                </FormItem>
-                            )}
+                            render={({ field }) => {
+                                const isInstallment = !isEditing && form.watch("installments") > 1;
+                                return (
+                                    <FormItem className={cn("flex items-center gap-3 rounded-lg border p-3", isInstallment && "opacity-60")}>
+                                        <FormControl>
+                                            <input
+                                                type="checkbox"
+                                                checked={field.value}
+                                                disabled={isInstallment}
+                                                onChange={(e) => {
+                                                    const checked = e.target.checked;
+                                                    field.onChange(checked);
+                                                    if (checked) form.setValue("installments", 1);
+                                                }}
+                                                className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600 disabled:cursor-not-allowed"
+                                            />
+                                        </FormControl>
+                                        <div className="space-y-0.5">
+                                            <FormLabel className="text-sm font-medium cursor-pointer">
+                                                Conta fixa
+                                            </FormLabel>
+                                            <p className="text-xs text-gray-500">
+                                                {isInstallment
+                                                    ? "Desabilitado para compras/contas parceladas (ex.: IPTU, IPVA)"
+                                                    : "Será projetada automaticamente nos próximos meses"}
+                                            </p>
+                                        </div>
+                                    </FormItem>
+                                );
+                            }}
                         />
 
                         {isEditing && initialData?.isFixed && (
@@ -368,11 +440,19 @@ export function TransactionModal({ children, initialData, onSuccess }: Transacti
                             render={({ field }) => {
                                 const selectedAccount = accounts.find((a) => a.id === field.value);
                                 const currentAmount = form.watch("amount") || 0;
+                                const currentInstallments = isEditing || form.watch("isFixed") ? 1 : (form.watch("installments") || 1);
                                 const currentType = form.watch("type");
+                                const currentDate = form.watch("date");
+                                const endOfToday = new Date();
+                                endOfToday.setHours(23, 59, 59, 999);
+                                const firstParcelIsPaid = !currentDate || currentDate <= endOfToday;
+                                const immediateAmount = currentInstallments > 1
+                                    ? (firstParcelIsPaid ? currentAmount / currentInstallments : 0)
+                                    : (firstParcelIsPaid ? currentAmount : 0);
 
                                 let newBalance = selectedAccount?.balance || 0;
-                                if (!isEditing && currentAmount > 0) {
-                                    newBalance += currentType === "INCOME" ? currentAmount : -currentAmount;
+                                if (!isEditing && immediateAmount > 0) {
+                                    newBalance += currentType === "INCOME" ? immediateAmount : -immediateAmount;
                                 } else if (isEditing && initialData?.status === "PAID") {
                                     const prevImpact = initialData.type === "INCOME" ? initialData.amount : -initialData.amount;
                                     const nextImpact = currentType === "INCOME" ? currentAmount : -currentAmount;

@@ -18,3 +18,7 @@ Thumbs.db
 # Gemini/AI
 .gemini/
 .agents/
+
+# Local database backups (personal financial data)
+backend/prisma/backup-data.json
+*.backup.json
