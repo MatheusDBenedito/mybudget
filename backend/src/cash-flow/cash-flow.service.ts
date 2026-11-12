@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AccountsService } from '../accounts/accounts.service';
+import { InvestmentsService } from '../investments/investments.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { CardTransactionsService } from '../card-transactions/card-transactions.service';
 import { buildCashFlow, CashFlowMonthInput, CashFlowResult } from './cash-flow.builder';
@@ -7,10 +9,22 @@ import { buildCashFlow, CashFlowMonthInput, CashFlowResult } from './cash-flow.b
 const monthIndex = (year: number, month: number) => year * 12 + (month - 1);
 const fromIndex = (index: number) => ({ year: Math.floor(index / 12), month: (index % 12) + 1 });
 
+const investmentGrossValue = (inv: any): number => {
+    if (inv.type === 'FIXED_INCOME' && inv.grossValue != null) {
+        return Number(inv.grossValue);
+    }
+    if ((inv.type === 'VARIABLE_INCOME' || inv.type === 'FII' || inv.type === 'CRYPTO') && inv.currentPrice != null) {
+        return Number(inv.currentPrice) * Number(inv.quantity ?? 0);
+    }
+    return Number(inv.currentValue ?? 0);
+};
+
 @Injectable()
 export class CashFlowService {
     constructor(
         private readonly prisma: PrismaService,
+        private readonly accounts: AccountsService,
+        private readonly investments: InvestmentsService,
         private readonly transactions: TransactionsService,
         private readonly cardTransactions: CardTransactionsService,
     ) { }
@@ -19,13 +33,28 @@ export class CashFlowService {
      * Spreadsheet-style cash flow for `count` months starting at month/year.
      * Reuses the same projection rules as the rest of the app (fixed transactions and card invoices),
      * so card rows update as soon as purchases are added to an invoice.
+     * Uses the gross balance (valor bruto) sum across all accounts + investments as openingBalance.
      */
     async getCashFlow(month: number, year: number, count: number, today = new Date()): Promise<CashFlowResult> {
-        const [accounts, cards] = await Promise.all([
-            this.prisma.account.findMany({ select: { balance: true } }),
-            this.prisma.creditCard.findMany({ select: { id: true, name: true, dueDay: true }, orderBy: { createdAt: 'asc' } }),
+        const [accounts, investments, cards] = await Promise.all([
+            this.accounts.findAll(),
+            this.investments.findAll(),
+            this.prisma.creditCard.findMany({
+                select: {
+                    id: true,
+                    name: true,
+                    dueDay: true,
+                    holders: {
+                        orderBy: [{ isMain: 'desc' }, { name: 'asc' }],
+                        select: { id: true, name: true, last4: true, isMain: true },
+                    },
+                },
+                orderBy: { createdAt: 'asc' },
+            }),
         ]);
-        const openingBalance = accounts.reduce((acc, a) => acc + a.balance, 0);
+        const accountsGross = accounts.reduce((acc, a) => acc + (a.grossBalance ?? a.balance), 0);
+        const investmentsGross = investments.reduce((acc, inv) => acc + investmentGrossValue(inv), 0);
+        const openingBalance = Math.round((accountsGross + investmentsGross) * 100) / 100;
 
         const start = monthIndex(year, month);
         const current = monthIndex(today.getFullYear(), today.getMonth() + 1);
@@ -46,12 +75,29 @@ export class CashFlowService {
                     isFixed: t.isFixed,
                     category: t.category ? { name: t.category.name } : null,
                 })),
-                cards: cards.map((c, i) => ({
-                    id: c.id,
-                    name: c.name,
-                    dueDay: c.dueDay,
-                    total: invoices[i].reduce((acc, tx) => acc + tx.amount, 0),
-                })),
+                cards: cards.map((c, i) => {
+                    const items = invoices[i];
+                    const total = items.reduce((acc, tx) => acc + tx.amount, 0);
+                    const holders = c.holders.length > 1
+                        ? c.holders.map(h => {
+                            const label = h.last4 ? `${h.name} ••${h.last4}` : h.name;
+                            return {
+                                id: h.id,
+                                name: h.isMain ? `${label} (titular)` : label,
+                                total: items
+                                    .filter(tx => (tx.cardHolder?.id ?? tx.cardHolderId) === h.id)
+                                    .reduce((acc, tx) => acc + tx.amount, 0),
+                            };
+                        })
+                        : undefined;
+                    return {
+                        id: c.id,
+                        name: c.name,
+                        dueDay: c.dueDay,
+                        total,
+                        holders,
+                    };
+                }),
             };
         };
 

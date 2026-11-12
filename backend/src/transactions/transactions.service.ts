@@ -2,7 +2,16 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
+
+const seriesKey = (type: string, description: string) =>
+    `${type}:${description.trim().toLocaleLowerCase('pt-BR')}`;
+
+const clampedMonthDate = (year: number, month: number, day: number) => {
+    const lastDay = new Date(year, month, 0).getDate();
+    return new Date(year, month - 1, Math.min(day, lastDay), 12, 0, 0);
+};
 
 @Injectable()
 export class TransactionsService {
@@ -82,26 +91,28 @@ export class TransactionsService {
                     date: { lt: startDate }, // Only from before this month
                 },
                 include: { category: true },
+                orderBy: { date: 'desc' },
             });
 
+            const seenSeries = new Set<string>();
+
             for (const fixed of fixedTransactions) {
-                // Fixed series ended before this month: no more projections
+                // Single-month overrides or ended templates before this month do not drive future projections
                 if (fixed.fixedUntil && fixed.fixedUntil < startDate) continue;
 
-                // Check if there's already a real transaction for this fixed in the current month.
-                // The account is deliberately not compared: paying a month's bill from another account
-                // must not make the original projection show up again as a duplicate.
+                const key = seriesKey(fixed.type, fixed.description);
+                // Only the latest active record of a fixed series drives future projections
+                if (seenSeries.has(key)) continue;
+                seenSeries.add(key);
+
+                // Any real fixed transaction in this month (even with an adjusted amount or different account)
+                // supersedes the projection so estimates never duplicate.
                 const alreadyExists = transactions.some(
-                    (t) =>
-                        t.description === fixed.description &&
-                        t.amount === fixed.amount &&
-                        t.type === fixed.type &&
-                        t.isFixed === true
+                    (t) => t.isFixed === true && seriesKey(t.type, t.description) === key,
                 );
 
                 if (!alreadyExists) {
-                    // Project with adjusted date and PENDING status
-                    const projectedDate = new Date(year, month - 1, new Date(fixed.date).getDate());
+                    const projectedDate = clampedMonthDate(year, month, new Date(fixed.date).getDate());
                     transactions.push({
                         ...fixed,
                         id: `projected-${fixed.id}-${year}-${month}`,
@@ -116,6 +127,167 @@ export class TransactionsService {
         }
 
         return transactions;
+    }
+
+    /**
+     * Edits a transaction (or materializes/updates a projected fixed estimate).
+     * Fixed transactions support `scope`:
+     * - "single": overrides only this month (leaving future projections at the original estimate).
+     * - "series": updates this month and future months (ending earlier templates before this month).
+     */
+    async update(id: string, dto: UpdateTransactionDto) {
+        const scope = dto.scope ?? 'single';
+
+        if (dto.accountId) {
+            const account = await this.prisma.account.findUnique({ where: { id: dto.accountId }, select: { id: true } });
+            if (!account) {
+                throw new BadRequestException('Conta informada não encontrada.');
+            }
+        }
+
+        if (id.startsWith('projected-')) {
+            const { originalId, year, month } = this.parseProjectedId(id);
+            const original = await this.prisma.transaction.findUnique({ where: { id: originalId } });
+            if (!original) {
+                throw new NotFoundException(`Original fixed transaction ${originalId} not found`);
+            }
+
+            const nextDescription = dto.description?.trim() || original.description;
+            const nextAmount = dto.amount ?? original.amount;
+            const nextType = dto.type ?? original.type;
+            const nextAccountId = dto.accountId ?? original.accountId;
+            const nextCategoryId = dto.categoryId ?? original.categoryId;
+            const nextIsFixed = dto.isFixed ?? true;
+            const nextDate = dto.date
+                ? new Date(dto.date)
+                : clampedMonthDate(year, month, new Date(original.date).getDate());
+            const monthStart = new Date(year, month - 1, 1);
+
+            return this.prisma.$transaction(async (tx) => {
+                if (scope === 'series') {
+                    await tx.transaction.updateMany({
+                        where: {
+                            isFixed: true,
+                            type: original.type,
+                            description: original.description,
+                            date: { lt: monthStart },
+                        },
+                        data: { fixedUntil: new Date(monthStart.getTime() - 1) },
+                    });
+                }
+
+                return tx.transaction.create({
+                    data: {
+                        description: nextDescription,
+                        amount: nextAmount,
+                        date: nextDate,
+                        type: nextType,
+                        status: 'PENDING',
+                        isFixed: nextIsFixed,
+                        fixedUntil: scope === 'single' && nextIsFixed ? new Date(year, month, 0, 23, 59, 59, 999) : null,
+                        accountId: nextAccountId,
+                        categoryId: nextCategoryId,
+                    },
+                    include: { category: true },
+                });
+            });
+        }
+
+        const existing = await this.prisma.transaction.findUnique({ where: { id } });
+        if (!existing) {
+            throw new NotFoundException(`Transaction with ID ${id} not found`);
+        }
+
+        const nextDescription = dto.description?.trim() || existing.description;
+        const nextAmount = dto.amount ?? existing.amount;
+        const nextType = dto.type ?? existing.type;
+        const nextAccountId = dto.accountId ?? existing.accountId;
+        const nextCategoryId = dto.categoryId !== undefined ? dto.categoryId : existing.categoryId;
+        const nextIsFixed = dto.isFixed ?? existing.isFixed;
+        const nextDate = dto.date ? new Date(dto.date) : existing.date;
+
+        const monthStart = new Date(existing.date.getFullYear(), existing.date.getMonth(), 1);
+        const monthEnd = new Date(existing.date.getFullYear(), existing.date.getMonth() + 1, 0, 23, 59, 59, 999);
+
+        return this.prisma.$transaction(async (tx) => {
+            const updated = await tx.transaction.update({
+                where: { id },
+                data: {
+                    description: nextDescription,
+                    amount: nextAmount,
+                    date: nextDate,
+                    type: nextType,
+                    isFixed: nextIsFixed,
+                    accountId: nextAccountId,
+                    categoryId: nextCategoryId,
+                    ...(scope === 'series' && nextIsFixed ? { fixedUntil: null } : {}),
+                },
+                include: { category: true },
+            });
+
+            if (existing.status === 'PAID') {
+                const oldDelta = this.balanceDelta(existing.type, existing.amount);
+                const newDelta = this.balanceDelta(nextType, nextAmount);
+                if (existing.accountId !== nextAccountId || oldDelta !== newDelta) {
+                    await tx.account.update({
+                        where: { id: existing.accountId },
+                        data: { balance: { increment: -oldDelta } },
+                    });
+                    await tx.account.update({
+                        where: { id: nextAccountId },
+                        data: { balance: { increment: newDelta } },
+                    });
+                }
+            }
+
+            if (scope === 'series' && existing.isFixed) {
+                await tx.transaction.updateMany({
+                    where: {
+                        id: { not: id },
+                        isFixed: true,
+                        type: existing.type,
+                        description: existing.description,
+                        date: { lt: monthStart },
+                    },
+                    data: { fixedUntil: new Date(monthStart.getTime() - 1) },
+                });
+
+                const futureRows = await tx.transaction.findMany({
+                    where: {
+                        id: { not: id },
+                        isFixed: true,
+                        type: existing.type,
+                        description: existing.description,
+                        date: { gt: monthEnd },
+                    },
+                });
+
+                for (const row of futureRows) {
+                    await tx.transaction.update({
+                        where: { id: row.id },
+                        data: {
+                            description: nextDescription,
+                            amount: nextAmount,
+                            type: nextType,
+                            categoryId: nextCategoryId,
+                            isFixed: nextIsFixed,
+                        },
+                    });
+                    if (row.status === 'PAID') {
+                        const rowOld = this.balanceDelta(row.type, row.amount);
+                        const rowNew = this.balanceDelta(nextType, nextAmount);
+                        if (rowOld !== rowNew) {
+                            await tx.account.update({
+                                where: { id: row.accountId },
+                                data: { balance: { increment: rowNew - rowOld } },
+                            });
+                        }
+                    }
+                }
+            }
+
+            return updated;
+        });
     }
 
     /**
@@ -137,12 +309,7 @@ export class TransactionsService {
 
         // Handle projected (virtual) fixed transactions
         if (id.startsWith('projected-')) {
-            // Parse: projected-{originalId}-{year}-{month}
-            const parts = id.split('-');
-            const projMonth = parseInt(parts[parts.length - 1], 10);
-            const projYear = parseInt(parts[parts.length - 2], 10);
-            // Original UUID is everything between 'projected-' and the last two segments
-            const originalId = parts.slice(1, parts.length - 2).join('-');
+            const { originalId, year: projYear, month: projMonth } = this.parseProjectedId(id);
 
             const original = await this.prisma.transaction.findUnique({
                 where: { id: originalId },
@@ -153,18 +320,20 @@ export class TransactionsService {
             }
 
             const accountId = newStatus === 'PAID' ? updateDto.accountId ?? original.accountId : original.accountId;
-            const projectedDate = new Date(projYear, projMonth - 1, new Date(original.date).getDate());
+            const effectiveAmount = updateDto.amount ?? original.amount;
+            const projectedDate = clampedMonthDate(projYear, projMonth, new Date(original.date).getDate());
 
             // Create a real transaction for this month (and settle it, if paid)
             return this.prisma.$transaction(async (tx) => {
                 const created = await tx.transaction.create({
                     data: {
                         description: original.description,
-                        amount: original.amount,
+                        amount: effectiveAmount,
                         date: projectedDate,
                         type: original.type,
                         status: newStatus,
                         isFixed: true,
+                        fixedUntil: updateDto.amount != null ? new Date(projYear, projMonth, 0, 23, 59, 59, 999) : null,
                         accountId,
                         categoryId: original.categoryId,
                     },
@@ -172,7 +341,7 @@ export class TransactionsService {
                 if (newStatus === 'PAID') {
                     await tx.account.update({
                         where: { id: accountId },
-                        data: { balance: { increment: this.balanceDelta(original.type, original.amount) } },
+                        data: { balance: { increment: this.balanceDelta(original.type, effectiveAmount) } },
                     });
                 }
                 return created;
@@ -193,7 +362,9 @@ export class TransactionsService {
             return transaction;
         }
 
-        const delta = this.balanceDelta(transaction.type, transaction.amount);
+        const effectiveAmount = newStatus === 'PAID' && updateDto.amount != null ? updateDto.amount : transaction.amount;
+        const oldDelta = this.balanceDelta(transaction.type, transaction.amount);
+        const newDelta = this.balanceDelta(transaction.type, effectiveAmount);
 
         return this.prisma.$transaction(async (tx) => {
             if (newStatus === 'PAID') {
@@ -201,11 +372,11 @@ export class TransactionsService {
                 const accountId = updateDto.accountId ?? transaction.accountId;
                 const updated = await tx.transaction.update({
                     where: { id },
-                    data: { status: newStatus, accountId },
+                    data: { status: newStatus, accountId, amount: effectiveAmount },
                 });
                 await tx.account.update({
                     where: { id: accountId },
-                    data: { balance: { increment: delta } },
+                    data: { balance: { increment: newDelta } },
                 });
                 return updated;
             }
@@ -218,7 +389,7 @@ export class TransactionsService {
                 // PAID → PENDING/CANCELLED: reverse on the account that was used
                 await tx.account.update({
                     where: { id: transaction.accountId },
-                    data: { balance: { increment: -delta } },
+                    data: { balance: { increment: -oldDelta } },
                 });
             }
             return updated;
@@ -251,7 +422,7 @@ export class TransactionsService {
 
         if (scope === 'series') {
             const series = await this.prisma.transaction.findMany({
-                where: { isFixed: true, description: tx.description, amount: tx.amount, type: tx.type },
+                where: { isFixed: true, description: tx.description, type: tx.type },
             });
             const lastDayBefore = new Date(monthStart.getTime() - 1);
             return this.prisma.$transaction(async (db) => {
@@ -274,9 +445,10 @@ export class TransactionsService {
                     description: tx.description,
                     amount: tx.amount,
                     type: tx.type,
-                    date: new Date(projected.year, projected.month - 1, tx.date.getDate()),
+                    date: clampedMonthDate(projected.year, projected.month, tx.date.getDate()),
                     status: 'CANCELLED',
                     isFixed: true,
+                    fixedUntil: new Date(projected.year, projected.month, 0, 23, 59, 59, 999),
                     accountId: tx.accountId,
                     categoryId: tx.categoryId,
                 },

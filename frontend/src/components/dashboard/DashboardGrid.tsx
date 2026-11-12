@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import {
     DndContext,
     KeyboardSensor,
@@ -16,41 +17,34 @@ import {
     useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
     DASHBOARD_BLOCK_TITLES,
-    DASHBOARD_WIDTHS,
-    DASHBOARD_WIDTH_LABELS,
+    clampHeightPx,
+    clampWidthPct,
+    widthCssPercent,
     type DashboardBlockId,
     type DashboardLayoutItem,
-    type DashboardWidth,
 } from "@/lib/dashboard-layout";
 
-const WIDTH_CLASS: Record<DashboardWidth, string> = {
-    4: "lg:col-span-4",
-    6: "lg:col-span-6",
-    8: "lg:col-span-8",
-    12: "lg:col-span-12",
-};
+type ResizeMode = "right" | "bottom" | "corner";
 
 interface DashboardGridProps {
     layout: DashboardLayoutItem[];
     editing: boolean;
-    onMove: (id: DashboardBlockId, direction: -1 | 1) => void;
     onReorder: (activeId: DashboardBlockId, overId: DashboardBlockId) => void;
-    onResize: (id: DashboardBlockId, width: DashboardWidth) => void;
-    renderWidget: (id: DashboardBlockId) => React.ReactNode;
+    onResizeBlock: (id: DashboardBlockId, size: { width?: number; height?: number }) => void;
+    renderWidget: (id: DashboardBlockId, item: DashboardLayoutItem) => React.ReactNode;
 }
 
 export function DashboardGrid({
     layout,
     editing,
-    onMove,
     onReorder,
-    onResize,
+    onResizeBlock,
     renderWidget,
 }: DashboardGridProps) {
+    const gridRef = useRef<HTMLDivElement | null>(null);
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -65,19 +59,16 @@ export function DashboardGrid({
     return (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={layout.map(item => item.id)} strategy={rectSortingStrategy}>
-                <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
-                    {layout.map((item, index) => (
+                <div ref={gridRef} className="-m-2 flex flex-wrap items-start">
+                    {layout.map(item => (
                         <DashboardWidget
                             key={item.id}
                             item={item}
-                            index={index}
-                            count={layout.length}
                             editing={editing}
-                            onMove={onMove}
-                            onResize={onResize}
-                        >
-                            {renderWidget(item.id)}
-                        </DashboardWidget>
+                            gridRef={gridRef}
+                            onResizeBlock={onResizeBlock}
+                            renderWidget={renderWidget}
+                        />
                     ))}
                 </div>
             </SortableContext>
@@ -87,21 +78,20 @@ export function DashboardGrid({
 
 function DashboardWidget({
     item,
-    index,
-    count,
     editing,
-    onMove,
-    onResize,
-    children,
+    gridRef,
+    onResizeBlock,
+    renderWidget,
 }: {
     item: DashboardLayoutItem;
-    index: number;
-    count: number;
     editing: boolean;
-    onMove: (id: DashboardBlockId, direction: -1 | 1) => void;
-    onResize: (id: DashboardBlockId, width: DashboardWidth) => void;
-    children: React.ReactNode;
+    gridRef: React.RefObject<HTMLDivElement | null>;
+    onResizeBlock: (id: DashboardBlockId, size: { width?: number; height?: number }) => void;
+    renderWidget: (id: DashboardBlockId, item: DashboardLayoutItem) => React.ReactNode;
 }) {
+    const [draftSize, setDraftSize] = useState<{ width: number; height: number } | null>(null);
+    const [resizingMode, setResizingMode] = useState<ResizeMode | null>(null);
+
     const {
         attributes,
         listeners,
@@ -109,87 +99,139 @@ function DashboardWidget({
         transform,
         transition,
         isDragging,
-    } = useSortable({ id: item.id, disabled: !editing });
+    } = useSortable({ id: item.id, disabled: !editing || resizingMode !== null });
+
+    const activeItem: DashboardLayoutItem = draftSize
+        ? { ...item, width: draftSize.width, height: draftSize.height }
+        : item;
 
     const title = DASHBOARD_BLOCK_TITLES[item.id];
+
+    const startResize = (mode: ResizeMode) => (e: ReactPointerEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const gridWidth = Math.max(gridRef.current?.getBoundingClientRect().width ?? 1200, 320);
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startWidth = item.width;
+        const startHeight = item.height;
+
+        let latestWidth = startWidth;
+        let latestHeight = startHeight;
+
+        setResizingMode(mode);
+        setDraftSize({ width: startWidth, height: startHeight });
+
+        const previousCursor = document.body.style.cursor;
+        document.body.style.cursor =
+            mode === "right" ? "ew-resize" : mode === "bottom" ? "ns-resize" : "nwse-resize";
+
+        const onPointerMove = (moveEvent: PointerEvent) => {
+            if (mode === "right" || mode === "corner") {
+                const deltaPct = ((moveEvent.clientX - startX) / gridWidth) * 100;
+                latestWidth = clampWidthPct(startWidth + deltaPct);
+            }
+            if (mode === "bottom" || mode === "corner") {
+                latestHeight = clampHeightPx(startHeight + (moveEvent.clientY - startY));
+            }
+            setDraftSize({ width: latestWidth, height: latestHeight });
+        };
+
+        const onPointerUp = () => {
+            window.removeEventListener("pointermove", onPointerMove);
+            window.removeEventListener("pointerup", onPointerUp);
+            document.body.style.cursor = previousCursor;
+            setResizingMode(null);
+            setDraftSize(null);
+
+            if (latestWidth !== startWidth || latestHeight !== startHeight) {
+                onResizeBlock(item.id, { width: latestWidth, height: latestHeight });
+            }
+        };
+
+        window.addEventListener("pointermove", onPointerMove);
+        window.addEventListener("pointerup", onPointerUp, { once: true });
+    };
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition: resizingMode ? undefined : transition,
+        zIndex: isDragging || resizingMode ? 20 : undefined,
+        "--card-w": widthCssPercent(activeItem.width),
+        "--card-h": `${activeItem.height + 16}px`,
+    } as CSSProperties;
 
     return (
         <div
             ref={setNodeRef}
-            style={{
-                transform: CSS.Transform.toString(transform),
-                transition,
-                zIndex: isDragging ? 20 : undefined,
-            }}
+            style={style}
             className={cn(
-                "min-w-0",
-                WIDTH_CLASS[item.width],
-                isDragging && "opacity-60",
+                "w-full min-w-0 p-2 md:h-[var(--card-h)] md:w-[var(--card-w)]",
+                isDragging && "opacity-75",
             )}
+            {...(editing ? attributes : {})}
+            {...(editing ? listeners : {})}
+            aria-roledescription={editing ? `Card arrastável: ${title}` : undefined}
         >
-            {editing && (
-                <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-lg border bg-card px-2 py-1.5 shadow-sm">
-                    <button
-                        type="button"
-                        {...attributes}
-                        {...listeners}
-                        aria-label={`Arrastar ${title}`}
-                        title="Arrastar"
-                        className="flex h-7 w-7 touch-none cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring active:cursor-grabbing"
-                    >
-                        <GripVertical className="h-4 w-4" aria-hidden="true" />
-                    </button>
-
-                    <span className="text-xs font-medium text-foreground">{title}</span>
-
-                    <div className="ml-auto flex items-center gap-1">
-                        <button
-                            type="button"
-                            onClick={() => onMove(item.id, -1)}
-                            disabled={index === 0}
-                            aria-label={`Mover ${title} para a esquerda`}
-                            title="Mover para a esquerda"
-                            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-30"
-                        >
-                            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => onMove(item.id, 1)}
-                            disabled={index === count - 1}
-                            aria-label={`Mover ${title} para a direita`}
-                            title="Mover para a direita"
-                            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-30"
-                        >
-                            <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                        </button>
-
-                        <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
-
-                        <div className="flex items-center gap-1" role="group" aria-label={`Largura de ${title}`}>
-                            {DASHBOARD_WIDTHS.map(width => (
-                                <button
-                                    key={width}
-                                    type="button"
-                                    onClick={() => onResize(item.id, width)}
-                                    aria-pressed={item.width === width}
-                                    aria-label={`Largura ${DASHBOARD_WIDTH_LABELS[width]}`}
-                                    className={cn(
-                                        "h-6 rounded px-1.5 text-[11px] font-medium tabular-nums transition-colors focus-visible:outline-2 focus-visible:outline-ring",
-                                        item.width === width
-                                            ? "bg-foreground text-background"
-                                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                                    )}
-                                >
-                                    {DASHBOARD_WIDTH_LABELS[width]}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+            <div
+                className={cn(
+                    "group/widget relative h-full min-w-0 rounded-2xl",
+                    editing && "cursor-grab select-none ring-1 ring-dashed ring-foreground/25 active:cursor-grabbing",
+                    resizingMode && "ring-2 ring-blue-500/70 select-none",
+                    isDragging && "shadow-lg ring-2 ring-foreground/40",
+                )}
+            >
+                <div className={cn("h-full min-w-0", editing && "pointer-events-none")}>
+                    {renderWidget(item.id, activeItem)}
                 </div>
-            )}
 
-            {children}
+                {/* Right contour resize handle */}
+                <div
+                    onPointerDown={startResize("right")}
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={`Redimensionar largura de ${title}`}
+                    className="absolute inset-y-3 -right-1 z-10 hidden w-2.5 cursor-ew-resize items-center justify-center md:flex"
+                >
+                    <span
+                        className={cn(
+                            "h-12 w-1 rounded-full bg-blue-500/0 transition-colors group-hover/widget:bg-foreground/15 hover:!bg-blue-500",
+                            resizingMode === "right" && "!bg-blue-500",
+                        )}
+                    />
+                </div>
+
+                {/* Bottom contour resize handle */}
+                <div
+                    onPointerDown={startResize("bottom")}
+                    role="separator"
+                    aria-orientation="horizontal"
+                    aria-label={`Redimensionar altura de ${title}`}
+                    className="absolute inset-x-3 -bottom-1 z-10 hidden h-2.5 cursor-ns-resize items-center justify-center md:flex"
+                >
+                    <span
+                        className={cn(
+                            "h-1 w-12 rounded-full bg-blue-500/0 transition-colors group-hover/widget:bg-foreground/15 hover:!bg-blue-500",
+                            resizingMode === "bottom" && "!bg-blue-500",
+                        )}
+                    />
+                </div>
+
+                {/* Bottom-right corner resize handle (both axes) */}
+                <div
+                    onPointerDown={startResize("corner")}
+                    aria-label={`Redimensionar largura e altura de ${title}`}
+                    className="absolute -bottom-1 -right-1 z-20 hidden h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 md:flex"
+                >
+                    <span
+                        className={cn(
+                            "h-2.5 w-2.5 rounded-br-lg border-b-2 border-r-2 border-transparent transition-colors group-hover/widget:border-foreground/30 hover:!border-blue-500",
+                            resizingMode === "corner" && "!border-blue-500",
+                        )}
+                    />
+                </div>
+            </div>
         </div>
     );
 }

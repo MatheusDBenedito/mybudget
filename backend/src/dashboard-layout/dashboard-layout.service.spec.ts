@@ -42,8 +42,8 @@ describe('DashboardLayoutService', () => {
     it('upserts the singleton layout', async () => {
         const updatedAt = new Date();
         const items = [
-            { id: 'forecast', width: 8 },
-            { id: 'bills', width: 4 },
+            { id: 'forecast', width: 67, height: 520 },
+            { id: 'bills', width: 33, height: 340 },
         ];
         prisma.dashboardLayout.upsert.mockResolvedValue({ id: 'default', items, updatedAt });
 

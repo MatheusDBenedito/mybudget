@@ -1,6 +1,28 @@
 export const formatCurrency = (value: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 
+export const formatCryptoPrice = (value: number) =>
+    new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 10,
+    }).format(value);
+
+export const formatCryptoUsdPrice = (value: number) =>
+    new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 10,
+    }).format(value);
+
+export const formatQuantity = (value: number) =>
+    new Intl.NumberFormat("pt-BR", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 10,
+    }).format(value);
+
 export const formatUsd = (value: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "USD" }).format(value);
 

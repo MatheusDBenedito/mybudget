@@ -14,13 +14,13 @@ import { BillsCard } from "@/components/dashboard/BillsCard";
 import { CardsCard, type DashCreditCard } from "@/components/dashboard/CardsCard";
 import { MoneyWhereCard, type DashAccount } from "@/components/dashboard/MoneyWhereCard";
 import { SpendingCard, type CategorySpend } from "@/components/dashboard/SpendingCard";
-import { type ApiInvestment, INVESTMENT_CLASSES, CLASS_ORDER, currentValueOf } from "@/lib/investments";
+import { type ApiInvestment, INVESTMENT_CLASSES, CLASS_ORDER, currentValueOf, grossValueOf, taxAmountOf } from "@/lib/investments";
 import { CHART_PALETTE } from "@/lib/charts";
 import type { CashFlowData } from "@/lib/cash-flow";
 import { billsByDay, budgetBreakdown, defaultBillDay } from "@/lib/dashboard";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { useDashboardLayout } from "@/components/dashboard/useDashboardLayout";
-import type { DashboardBlockId } from "@/lib/dashboard-layout";
+import type { DashboardBlockId, DashboardLayoutItem } from "@/lib/dashboard-layout";
 
 type ApiTransaction = {
   id: string;
@@ -53,9 +53,8 @@ export default function DashboardPage() {
     layout,
     editing,
     setEditing,
-    move,
     reorder,
-    resize,
+    resizeBlock,
     reset,
     finishEditing,
   } = useDashboardLayout();
@@ -95,7 +94,8 @@ export default function DashboardPage() {
   const breakdown = useMemo(() => (cashFlow ? budgetBreakdown(cashFlow) : null), [cashFlow]);
   const projectedBalance = cashFlow?.summary.projectedBalance[0] ?? null;
   const days = useMemo(() => billsByDay(transactions, cards, cashFlow, { year, month }), [transactions, cards, cashFlow, year, month]);
-  const investmentsTotal = investments.reduce((acc, i) => acc + currentValueOf(i), 0);
+  const investmentsGross = investments.reduce((acc, i) => acc + grossValueOf(i), 0);
+  const investmentsTax = investments.reduce((acc, i) => acc + taxAmountOf(i), 0);
 
   // Favorite card first, so the card on the summary is the one marked on the cards page
   const orderedCards = useMemo(
@@ -114,33 +114,49 @@ export default function DashboardPage() {
     color: CHART_PALETTE[i],
   }));
 
-  // One entry per configurable block; the grid decides order and width
-  const widgets: Record<DashboardBlockId, ReactNode> = {
-    forecast: <ForecastCard breakdown={breakdown} projectedBalance={projectedBalance} />,
-    bills: <BillsCard days={days} defaultDay={defaultBillDay(days, monthRef)} month={monthRef} />,
-    moneywhere: <MoneyWhereCard accounts={accounts} investments={investmentsTotal} />,
-    cards: <CardsCard key={`${year}-${month}`} cards={orderedCards} data={cashFlow} />,
-    spending: <SpendingCard categories={spending} income={breakdown?.income ?? 0} />,
-    "cashflow-chart": (
-      <Panel
-        title="Recebimentos x Despesas — próximos 12 meses"
-        icon={ChartColumn}
-        className="rounded-2xl"
-        actions={<Link href="/fluxo-de-caixa" className={linkPill}>Ver fluxo de caixa <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></Link>}
-      >
-        {cashFlow ? <IncomeVsExpensesChart data={cashFlow} /> : <div className="h-[300px] animate-pulse rounded-md bg-muted" />}
-      </Panel>
-    ),
-    "investments-chart": (
-      <Panel
-        title="Investimentos"
-        icon={ChartPie}
-        className="rounded-2xl"
-        actions={<Link href="/investimentos" className={linkPill}>Ver carteira <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></Link>}
-      >
-        <DonutChart stacked data={investmentSlices} centerLabel="investido hoje" emptyMessage="Nenhum investimento cadastrado." ariaLabel="Distribuição dos investimentos por categoria" />
-      </Panel>
-    ),
+  // One entry per configurable block; the grid decides order, width and height
+  const renderWidget = (id: DashboardBlockId, item: DashboardLayoutItem): ReactNode => {
+    switch (id) {
+      case "forecast":
+        return <ForecastCard breakdown={breakdown} projectedBalance={projectedBalance} height={item.height} />;
+      case "bills":
+        return <BillsCard days={days} defaultDay={defaultBillDay(days, monthRef)} month={monthRef} height={item.height} />;
+      case "moneywhere":
+        return <MoneyWhereCard accounts={accounts} investments={investmentsGross} investmentsTax={investmentsTax} height={item.height} />;
+      case "cards":
+        return <CardsCard key={`${year}-${month}`} cards={orderedCards} data={cashFlow} height={item.height} />;
+      case "spending":
+        return <SpendingCard categories={spending} income={breakdown?.income ?? 0} height={item.height} />;
+      case "cashflow-chart":
+        return (
+          <Panel
+            title="Recebimentos x Despesas — próximos 12 meses"
+            icon={ChartColumn}
+            className="h-full rounded-2xl"
+            actions={<Link href="/fluxo-de-caixa" className={linkPill}>Ver fluxo de caixa <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></Link>}
+          >
+            {cashFlow ? <IncomeVsExpensesChart data={cashFlow} /> : <div className="h-full min-h-[180px] animate-pulse rounded-md bg-muted" />}
+          </Panel>
+        );
+      case "investments-chart":
+        return (
+          <Panel
+            title="Investimentos"
+            icon={ChartPie}
+            className="h-full rounded-2xl"
+            actions={<Link href="/investimentos" className={linkPill}>Ver carteira <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></Link>}
+          >
+            <DonutChart
+              stacked={item.width < 50}
+              height={item.height}
+              data={investmentSlices}
+              centerLabel="investido hoje"
+              emptyMessage="Nenhum investimento cadastrado."
+              ariaLabel="Distribuição dos investimentos por categoria"
+            />
+          </Panel>
+        );
+    }
   };
 
   return (
@@ -185,7 +201,7 @@ export default function DashboardPage() {
 
       {editing && (
         <p className="rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          Arraste pela alça, use as setas para ordenar e os botões 1/3 · 1/2 · 2/3 · 100% para redimensionar.
+          Arraste qualquer card para mudar de posição e passe o mouse no contorno direito, inferior ou canto para redimensionar livremente.
           As alterações são salvas automaticamente.
         </p>
       )}
@@ -193,10 +209,9 @@ export default function DashboardPage() {
       <DashboardGrid
         layout={layout}
         editing={editing}
-        onMove={move}
         onReorder={reorder}
-        onResize={resize}
-        renderWidget={(id) => widgets[id]}
+        onResizeBlock={resizeBlock}
+        renderWidget={renderWidget}
       />
     </div>
   );

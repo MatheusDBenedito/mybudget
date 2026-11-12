@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Patch, Param, Query, Delete } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
 
 @Controller('transactions')
@@ -20,6 +21,14 @@ export class TransactionsController {
         const parsedMonth = month ? parseInt(month, 10) : undefined;
         const parsedYear = year ? parseInt(year, 10) : undefined;
         return this.transactionsService.findAll(parsedMonth, parsedYear);
+    }
+
+    @Patch(':id')
+    update(
+        @Param('id') id: string,
+        @Body() updateTransactionDto: UpdateTransactionDto,
+    ) {
+        return this.transactionsService.update(id, updateTransactionDto);
     }
 
     @Patch(':id/status')

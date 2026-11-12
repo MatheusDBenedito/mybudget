@@ -10,11 +10,15 @@ export const DASHBOARD_BLOCK_IDS = [
 
 export type DashboardBlockId = (typeof DASHBOARD_BLOCK_IDS)[number];
 
-export const DASHBOARD_WIDTHS = [4, 6, 8, 12] as const;
+export const MIN_DASHBOARD_WIDTH_PCT = 20;
+export const MAX_DASHBOARD_WIDTH_PCT = 100;
 
-export type DashboardWidth = (typeof DASHBOARD_WIDTHS)[number];
+export const MIN_DASHBOARD_HEIGHT_PX = 260;
+export const MAX_DASHBOARD_HEIGHT_PX = 760;
+export const DEFAULT_DASHBOARD_HEIGHT_PX = 460;
 
 export interface DashboardLayoutItem {
     id: DashboardBlockId;
-    width: DashboardWidth;
+    width: number;
+    height?: number | 'sm' | 'md' | 'lg';
 }

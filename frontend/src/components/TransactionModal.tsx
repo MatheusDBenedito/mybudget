@@ -44,7 +44,7 @@ import { type AccountLike, defaultSettlementAccount } from "@/lib/accounts";
 const transactionSchema = z.object({
     description: z.string().min(3, "A descrição deve ter pelo menos 3 caracteres."),
     amount: z.number({ message: "Insira um valor válido." }).positive("O valor deve ser maior que zero."),
-    categoryId: z.string().min(1, "Selecione uma categoria."),
+    categoryId: z.string().optional(),
     accountId: z.string().min(1, "Selecione uma conta."),
     type: z.enum(["INCOME", "EXPENSE"]),
     isFixed: z.boolean(),
@@ -61,86 +61,134 @@ type ApiCategory = {
 
 type ApiAccount = AccountLike;
 
+export type EditableTransaction = {
+    id: string;
+    description: string;
+    amount: number;
+    date: string;
+    type: "INCOME" | "EXPENSE";
+    status?: "PAID" | "PENDING" | "CANCELLED";
+    isFixed?: boolean;
+    accountId?: string;
+    categoryId?: string | null;
+};
+
 interface TransactionModalProps {
     children: React.ReactNode;
+    initialData?: EditableTransaction;
     /** Called after saving; when omitted the page reloads */
     onSuccess?: () => void;
 }
 
-export function TransactionModal({ children, onSuccess }: TransactionModalProps) {
+export function TransactionModal({ children, initialData, onSuccess }: TransactionModalProps) {
     const [open, setOpen] = useState(false);
     const [categories, setCategories] = useState<ApiCategory[]>([]);
     const [accounts, setAccounts] = useState<ApiAccount[]>([]);
     const [isSaving, setIsSaving] = useState(false);
+    const [editScope, setEditScope] = useState<"single" | "series">("single");
+    const isEditing = !!initialData;
 
     const form = useForm<TransactionData>({
         resolver: zodResolver(transactionSchema),
         defaultValues: {
-            description: "",
-            amount: 0,
-            categoryId: "",
-            accountId: "",
-            type: "EXPENSE",
-            isFixed: false,
-            date: new Date(),
+            description: initialData?.description ?? "",
+            amount: initialData?.amount ?? 0,
+            categoryId: initialData?.categoryId ?? "",
+            accountId: initialData?.accountId ?? "",
+            type: initialData?.type ?? "EXPENSE",
+            isFixed: initialData?.isFixed ?? false,
+            date: initialData ? new Date(initialData.date) : new Date(),
         },
     });
 
-    const amount = form.watch("amount") || 0;
-    const type = form.watch("type");
-
     useEffect(() => {
+        if (!open) return;
+        let cancelled = false;
+
         const fetchData = async () => {
             try {
                 const [catRes, accRes] = await Promise.all([
                     fetch("http://localhost:3333/categories"),
                     fetch("http://localhost:3333/accounts"),
                 ]);
-                if (catRes.ok) setCategories(await catRes.json());
-                if (accRes.ok) {
-                    const accData = await accRes.json();
-                    setAccounts(accData);
-                    if (accData.length > 0) {
-                        // New entries default to expense, so prefer an account that doesn't yield
-                        form.setValue("accountId", defaultSettlementAccount(accData, "EXPENSE")?.id ?? accData[0].id);
-                    }
-                }
+                if (cancelled) return;
+                const catData: ApiCategory[] = catRes.ok ? await catRes.json() : [];
+                const accData: ApiAccount[] = accRes.ok ? await accRes.json() : [];
+                setCategories(catData);
+                setAccounts(accData);
+
+                const defaultAccId = initialData?.accountId
+                    || defaultSettlementAccount(accData, initialData?.type ?? "EXPENSE")?.id
+                    || accData[0]?.id
+                    || "";
+
+                form.reset({
+                    description: initialData?.description ?? "",
+                    amount: initialData?.amount ?? 0,
+                    categoryId: initialData?.categoryId ?? "",
+                    accountId: defaultAccId,
+                    type: initialData?.type ?? "EXPENSE",
+                    isFixed: initialData?.isFixed ?? false,
+                    date: initialData ? new Date(initialData.date) : new Date(),
+                });
+                setEditScope("single");
             } catch (error) {
                 console.error("Failed to load data:", error);
             }
         };
-        fetchData();
-    }, []);
 
-
-
+        void fetchData();
+        return () => { cancelled = true; };
+    }, [open, initialData, form]);
 
     const onSubmit = async (data: TransactionData) => {
+        if (!isEditing && !data.categoryId) {
+            form.setError("categoryId", { message: "Selecione uma categoria." });
+            return;
+        }
+
         setIsSaving(true);
         try {
-            const res = await fetch("http://localhost:3333/transactions", {
-                method: "POST",
+            const url = isEditing
+                ? `http://localhost:3333/transactions/${initialData.id}`
+                : "http://localhost:3333/transactions";
+            const method = isEditing ? "PATCH" : "POST";
+
+            const payload: Record<string, unknown> = {
+                description: data.description,
+                amount: Number(data.amount),
+                date: data.date.toISOString(),
+                type: data.type,
+                accountId: data.accountId,
+                isFixed: data.isFixed,
+                ...(data.categoryId ? { categoryId: data.categoryId } : {}),
+                ...(isEditing && initialData?.isFixed ? { scope: editScope } : {}),
+            };
+
+            const res = await fetch(url, {
+                method,
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    description: data.description,
-                    amount: Number(data.amount),
-                    date: data.date.toISOString(),
-                    type: data.type,
-                    categoryId: data.categoryId,
-                    accountId: data.accountId,
-                    isFixed: data.isFixed,
-                }),
+                body: JSON.stringify(payload),
             });
 
             if (res.ok) {
                 setOpen(false);
-                // Keep a valid account selected so a second entry can be saved without reloading
-                form.reset({ ...form.formState.defaultValues, date: new Date(), accountId: defaultSettlementAccount(accounts, "EXPENSE")?.id ?? "" });
+                if (!isEditing) {
+                    form.reset({
+                        description: "",
+                        amount: 0,
+                        categoryId: "",
+                        accountId: defaultSettlementAccount(accounts, "EXPENSE")?.id ?? "",
+                        type: "EXPENSE",
+                        isFixed: false,
+                        date: new Date(),
+                    });
+                }
                 if (onSuccess) {
-                    toast.success("Lançamento salvo.");
+                    toast.success(isEditing ? "Lançamento atualizado." : "Lançamento salvo.");
                     onSuccess();
                 } else {
-                    window.location.reload(); // Reload to fetch fresh data for Dashboard MVP
+                    window.location.reload();
                 }
             } else {
                 const error = await res.json();
@@ -159,11 +207,13 @@ export function TransactionModal({ children, onSuccess }: TransactionModalProps)
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[440px]">
                 <DialogHeader>
-                    <DialogTitle>Nova Transação</DialogTitle>
+                    <DialogTitle>{isEditing ? "Editar Transação" : "Nova Transação"}</DialogTitle>
                     <DialogDescription>
-                        Adicione uma nova transação financeira ao seu fluxo de caixa.
+                        {isEditing
+                            ? "Ajuste o valor estimado ou os dados deste lançamento."
+                            : "Adicione uma nova transação financeira ao seu fluxo de caixa."}
                     </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
@@ -210,7 +260,7 @@ export function TransactionModal({ children, onSuccess }: TransactionModalProps)
                                     <FormControl>
                                         <RadioGroup
                                             onValueChange={field.onChange}
-                                            defaultValue={field.value}
+                                            value={field.value}
                                             className="flex space-x-4"
                                         >
                                             <FormItem className="flex items-center space-x-2 space-y-0">
@@ -261,13 +311,39 @@ export function TransactionModal({ children, onSuccess }: TransactionModalProps)
                             )}
                         />
 
+                        {isEditing && initialData?.isFixed && (
+                            <fieldset className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                                <legend className="px-1 text-xs font-medium text-muted-foreground">Aplicar alteração em</legend>
+                                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                                    <input
+                                        type="radio"
+                                        name="edit-scope"
+                                        checked={editScope === "single"}
+                                        onChange={() => setEditScope("single")}
+                                        className="h-4 w-4 accent-foreground"
+                                    />
+                                    <span>Só este mês <span className="text-xs text-muted-foreground">(próximos mantêm a estimativa)</span></span>
+                                </label>
+                                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                                    <input
+                                        type="radio"
+                                        name="edit-scope"
+                                        checked={editScope === "series"}
+                                        onChange={() => setEditScope("series")}
+                                        className="h-4 w-4 accent-foreground"
+                                    />
+                                    <span>Este mês e os próximos <span className="text-xs text-muted-foreground">(atualiza a estimativa)</span></span>
+                                </label>
+                            </fieldset>
+                        )}
+
                         <FormField
                             control={form.control}
                             name="categoryId"
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Categoria</FormLabel>
-                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <Select onValueChange={field.onChange} value={field.value || ""}>
                                         <FormControl>
                                             <SelectTrigger>
                                                 <SelectValue placeholder="Selecione..." />
@@ -291,18 +367,26 @@ export function TransactionModal({ children, onSuccess }: TransactionModalProps)
                             name="accountId"
                             render={({ field }) => {
                                 const selectedAccount = accounts.find((a) => a.id === field.value);
-                                const amount = form.watch("amount") || 0;
-                                const type = form.watch("type");
+                                const currentAmount = form.watch("amount") || 0;
+                                const currentType = form.watch("type");
 
                                 let newBalance = selectedAccount?.balance || 0;
-                                if (amount > 0) {
-                                    newBalance += type === "INCOME" ? amount : -amount;
+                                if (!isEditing && currentAmount > 0) {
+                                    newBalance += currentType === "INCOME" ? currentAmount : -currentAmount;
+                                } else if (isEditing && initialData?.status === "PAID") {
+                                    const prevImpact = initialData.type === "INCOME" ? initialData.amount : -initialData.amount;
+                                    const nextImpact = currentType === "INCOME" ? currentAmount : -currentAmount;
+                                    if (field.value === initialData.accountId) {
+                                        newBalance += nextImpact - prevImpact;
+                                    } else {
+                                        newBalance += nextImpact;
+                                    }
                                 }
 
                                 return (
                                     <FormItem>
                                         <FormLabel>Conta</FormLabel>
-                                        <Select onValueChange={field.onChange} value={field.value}>
+                                        <Select onValueChange={field.onChange} value={field.value || ""}>
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder="Selecione a conta..." />
@@ -316,7 +400,7 @@ export function TransactionModal({ children, onSuccess }: TransactionModalProps)
                                                 ))}
                                             </SelectContent>
                                         </Select>
-                                        {selectedAccount && (
+                                        {selectedAccount && (!isEditing || initialData?.status === "PAID") && (
                                             <div className="mt-2 text-sm text-gray-500 bg-gray-50/50 p-3 rounded-md border border-gray-100 flex justify-between items-center">
                                                 <span>Saldo após transação:</span>
                                                 <span className={cn(
@@ -381,7 +465,7 @@ export function TransactionModal({ children, onSuccess }: TransactionModalProps)
                                 Cancelar
                             </Button>
                             <Button type="submit" disabled={isSaving}>
-                                {isSaving ? "Salvando..." : "Salvar Transação"}
+                                {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Salvar Transação"}
                             </Button>
                         </div>
                     </form>

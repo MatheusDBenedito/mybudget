@@ -1,23 +1,105 @@
 // Account helpers. Pure functions (no React/aliases) so they can run under `node --test`.
 
 export type AccountType = "CHECKING" | "YIELDING";
+export type AccountCurrency = "BRL" | "USD";
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
     CHECKING: "Conta corrente",
     YIELDING: "Conta remunerada",
 };
 
+export const ACCOUNT_CURRENCY_LABELS: Record<AccountCurrency, string> = {
+    BRL: "Real (R$)",
+    USD: "Dólar (US$)",
+};
+
 export type AccountLike = {
     id: string;
     name: string;
     balance: number;
+    grossBalance?: number;
+    taxAmount?: number;
+    currency?: AccountCurrency;
+    balanceUsd?: number | null;
+    investedBrl?: number | null;
+    purchaseExchangeRate?: number | null;
+    currentExchangeRate?: number | null;
+    variationBrl?: number;
+    variationPct?: number;
     type?: AccountType;
     cdiPercentage?: number | null;
     /** Balance outside the cofrinhos (yielding accounts) */
     freeBalance?: number;
 };
 
-export const isYielding = (account: AccountLike) => account.type === "YIELDING";
+export const isYielding = (account: AccountLike) => account.type === "YIELDING" && account.currency !== "USD";
+
+export const isUsdAccount = (account: AccountLike) => account.currency === "USD";
+
+const round2 = (v: number) => Math.round(v * 100) / 100;
+const round4 = (v: number) => Math.round(v * 10000) / 10000;
+
+export type UsdAccountMetrics = {
+    balanceUsd: number;
+    investedBrl: number;
+    purchaseExchangeRate: number | null;
+    currentExchangeRate: number | null;
+    currentBalanceBrl: number;
+    variationBrl: number;
+    variationPct: number;
+};
+
+/**
+ * Pure calculator for USD accounts:
+ * - Resolves investedBrl and purchaseExchangeRate from whichever was informed
+ * - Calculates currentBalanceBrl based on today's USD rate (or purchase rate fallback)
+ * - Calculates variationBrl and variationPct relative to the BRL amount spent at purchase
+ */
+export function computeUsdAccountMetrics(input: {
+    balanceUsd?: number | null;
+    investedBrl?: number | null;
+    purchaseExchangeRate?: number | null;
+    currentExchangeRate?: number | null;
+    fallbackBalanceBrl?: number | null;
+}): UsdAccountMetrics {
+    const balanceUsd = round2(input.balanceUsd ?? 0);
+    let investedBrl = input.investedBrl != null ? round2(input.investedBrl) : null;
+    let purchaseRate = input.purchaseExchangeRate != null && input.purchaseExchangeRate > 0
+        ? round4(input.purchaseExchangeRate)
+        : null;
+
+    if (balanceUsd > 0) {
+        if (investedBrl != null && purchaseRate == null) {
+            purchaseRate = round4(investedBrl / balanceUsd);
+        } else if (purchaseRate != null && investedBrl == null) {
+            investedBrl = round2(balanceUsd * purchaseRate);
+        }
+    }
+
+    const currentRate = input.currentExchangeRate != null && input.currentExchangeRate > 0
+        ? round4(input.currentExchangeRate)
+        : purchaseRate;
+
+    const currentBalanceBrl = currentRate != null
+        ? round2(balanceUsd * currentRate)
+        : round2(input.fallbackBalanceBrl ?? investedBrl ?? 0);
+
+    const resolvedInvestedBrl = round2(investedBrl ?? currentBalanceBrl);
+    const variationBrl = round2(currentBalanceBrl - resolvedInvestedBrl);
+    const variationPct = resolvedInvestedBrl > 0
+        ? round2(((currentBalanceBrl - resolvedInvestedBrl) / resolvedInvestedBrl) * 100)
+        : 0;
+
+    return {
+        balanceUsd,
+        investedBrl: resolvedInvestedBrl,
+        purchaseExchangeRate: purchaseRate,
+        currentExchangeRate: currentRate,
+        currentBalanceBrl,
+        variationBrl,
+        variationPct,
+    };
+}
 
 /** Short description of the yield, e.g. "Rende 100% do CDI". */
 export const yieldLabel = (account: AccountLike) =>

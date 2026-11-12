@@ -33,19 +33,23 @@ enum AccountType {
 }
 
 model Account {
-  id        String   @id @default(uuid())
-  name      String
-  balance   Float    @default(0)
-  type          AccountType @default(CHECKING)
-  cdiPercentage Float?      // Só para contas remuneradas, ex: 100 = 100% do CDI
-  yieldSince    DateTime?   // Dia a partir do qual a conta remunerada passa a render (sem retroativo)
-  yields        AccountYield[]
-  pots          YieldPot[]
-  transfersOut  AccountTransfer[] @relation("TransfersOut")
-  transfersIn   AccountTransfer[] @relation("TransfersIn")
-  adjustments   BalanceAdjustment[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                   String      @id @default(uuid())
+  name                 String
+  balance              Float       @default(0)
+  currency             String      @default("BRL") // "BRL" | "USD"
+  balanceUsd           Float?      // Saldo em US$ quando a conta é em dólar
+  investedBrl          Float?      // Valor total gasto em R$ no momento da compra do dólar
+  purchaseExchangeRate Float?      // Cotação do dólar (R$/US$) paga no momento da compra
+  type                 AccountType @default(CHECKING)
+  cdiPercentage        Float?      // Só para contas remuneradas, ex: 100 = 100% do CDI
+  yieldSince           DateTime?   // Dia a partir do qual a conta remunerada passa a render (sem retroativo)
+  yields               AccountYield[]
+  pots                 YieldPot[]
+  transfersOut         AccountTransfer[] @relation("TransfersOut")
+  transfersIn          AccountTransfer[] @relation("TransfersIn")
+  adjustments          BalanceAdjustment[]
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
   
   transactions Transaction[]
   creditCards  CreditCard[]
@@ -176,6 +180,7 @@ model RecurringExpense {
 enum InvestmentType {
   FIXED_INCOME
   VARIABLE_INCOME
+  FII
   CRYPTO
   US_STOCK
   OTHER
@@ -201,8 +206,28 @@ model Investment {
   // US stocks/ETFs: averagePrice/currentPrice are in USD
   purchaseExchangeRate Float?   // Cotação do dólar (BRL) usada na compra
 
+  dividends      InvestmentDividend[]
+
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+}
+
+model InvestmentDividend {
+  id             String     @id @default(uuid())
+  investmentId   String
+  investment     Investment @relation(fields: [investmentId], references: [id], onDelete: Cascade)
+  tickerCode     String
+  date           DateTime
+  amountPerShare Float
+  quantity       Float
+  totalOriginal  Float
+  currency       String     @default("BRL")
+  totalBrl       Float
+  createdAt      DateTime   @default(now())
+
+  @@unique([investmentId, date, amountPerShare])
+  @@index([investmentId])
+  @@index([date])
 }
 
 enum MilesStatus {

@@ -131,3 +131,50 @@ export function filterByHolder<T extends InvoiceItemWithHolder>(
     if (!holderId) return items;
     return items.filter(item => (item.cardHolder?.id ?? item.cardHolderId) === holderId);
 }
+
+export type HolderSection<T> = {
+    id: string;
+    name: string;
+    isMain: boolean;
+    items: T[];
+    total: number;
+};
+
+/**
+ * Splits an invoice into one section per holder (titular first, then additional holders)
+ * inside the same card. Holders without items in the month are kept so the user can see
+ * R$ 0,00 on an unused additional card.
+ */
+export function groupInvoiceByHolder<T extends InvoiceItemWithHolder>(
+    items: T[],
+    holders?: readonly CardHolderLike[] | null,
+): { sections: HolderSection<T>[]; total: number } {
+    const ordered = holdersOf(holders);
+    const sectionsMap = new Map<string, HolderSection<T>>();
+
+    for (const holder of ordered) {
+        sectionsMap.set(holder.id, {
+            id: holder.id,
+            name: holderLabel(holder),
+            isMain: !!holder.isMain,
+            items: [],
+            total: 0,
+        });
+    }
+
+    for (const item of items) {
+        const id = item.cardHolder?.id ?? item.cardHolderId ?? "unknown";
+        const name = item.cardHolder ? holderLabel(item.cardHolder) : "Sem portador";
+        let section = sectionsMap.get(id);
+        if (!section) {
+            section = { id, name, isMain: false, items: [], total: 0 };
+            sectionsMap.set(id, section);
+        }
+        section.items.push(item);
+        section.total = round2(section.total + item.amount);
+    }
+
+    const sections = [...sectionsMap.values()];
+    const total = round2(sections.reduce((acc, s) => acc + s.total, 0));
+    return { sections, total };
+}

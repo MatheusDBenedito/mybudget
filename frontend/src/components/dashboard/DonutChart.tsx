@@ -3,6 +3,7 @@
 import { Money } from "@/components/Money";
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { cn } from "@/lib/utils";
 
 export type DonutSlice = { name: string; value: number; color: string };
 
@@ -25,23 +26,29 @@ interface DonutChartProps {
     ariaLabel: string;
     /** Legend always below the donut (for narrow cards) */
     stacked?: boolean;
+    height?: number;
 }
 
 /** Donut with the total in the center and a legend listing value and share of each slice. */
-export function DonutChart({ data, centerLabel, emptyMessage, ariaLabel, stacked }: DonutChartProps) {
+export function DonutChart({ data, centerLabel, emptyMessage, ariaLabel, stacked, height = 460 }: DonutChartProps) {
     const slices = data.filter(d => d.value > 0);
     const total = slices.reduce((acc, d) => acc + d.value, 0);
+    const dims = height < 380
+        ? { box: "h-[140px] w-[140px]", inner: 42, outer: 64 }
+        : height >= 540
+            ? { box: "h-[228px] w-[228px]", inner: 72, outer: 106 }
+            : { box: "h-[180px] w-[180px]", inner: 56, outer: 84 };
 
     if (slices.length === 0) {
-        return <p className="py-12 text-center text-sm text-muted-foreground">{emptyMessage}</p>;
+        return <p className="my-auto py-8 text-center text-sm text-muted-foreground">{emptyMessage}</p>;
     }
 
     return (
-        <div className={stacked ? "flex flex-col items-center gap-4" : "flex flex-col items-center gap-4 sm:flex-row"}>
-            <div className="relative h-[200px] w-[200px] shrink-0" role="img" aria-label={ariaLabel}>
+        <div className={cn("min-h-0 flex-1", stacked ? "flex flex-col items-center justify-between gap-3" : "flex flex-col items-center justify-center gap-4 sm:flex-row")}>
+            <div className={cn("relative shrink-0", dims.box)} role="img" aria-label={ariaLabel}>
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                        <Pie data={slices} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={slices.length > 1 ? 2 : 0} stroke="none" isAnimationActive={false}>
+                        <Pie data={slices} dataKey="value" nameKey="name" innerRadius={dims.inner} outerRadius={dims.outer} paddingAngle={slices.length > 1 ? 2 : 0} stroke="none" isAnimationActive={false}>
                             {slices.map(s => <Cell key={s.name} fill={s.color} />)}
                         </Pie>
                         <Tooltip content={<SliceTooltip total={total} />} />
@@ -52,7 +59,7 @@ export function DonutChart({ data, centerLabel, emptyMessage, ariaLabel, stacked
                     <span className="text-[11px] text-muted-foreground">{centerLabel}</span>
                 </div>
             </div>
-            <ul className="w-full min-w-0 space-y-2 text-sm">
+            <ul className="w-full min-w-0 flex-1 space-y-2 overflow-y-auto pr-1 text-sm">
                 {slices.map(s => (
                     <li key={s.name} className="flex items-center justify-between gap-3">
                         <span className="flex min-w-0 items-center gap-2">

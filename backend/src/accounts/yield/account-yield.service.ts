@@ -292,15 +292,26 @@ export class AccountYieldService implements OnModuleInit, OnModuleDestroy {
         });
     }
 
-    /** What entered the balance (net yield + IR refunds) in the given month, per account and per bucket. */
-    async monthTotals(year: number, month: number): Promise<{ byAccount: Map<string, number>; byBucket: Map<string, number> }> {
+    /** What entered the balance (net yield + IR refunds) in the given month, and cumulative IR tax per account/bucket. */
+    async monthTotals(year: number, month: number): Promise<{
+        byAccount: Map<string, number>;
+        byBucket: Map<string, number>;
+        taxByAccount: Map<string, number>;
+        taxByBucket: Map<string, number>;
+    }> {
         const start = new Date(Date.UTC(year, month - 1, 1));
         const end = new Date(Date.UTC(year, month, 1));
-        const rows = await this.prisma.accountYield.groupBy({
-            by: ['accountId', 'bucket'],
-            where: { date: { gte: start, lt: end } },
-            _sum: { netAmount: true, taxRefund: true },
-        });
+        const [rows, allTaxRows] = await Promise.all([
+            this.prisma.accountYield.groupBy({
+                by: ['accountId', 'bucket'],
+                where: { date: { gte: start, lt: end } },
+                _sum: { netAmount: true, taxRefund: true },
+            }),
+            this.prisma.accountYield.groupBy({
+                by: ['accountId', 'bucket'],
+                _sum: { taxAmount: true, taxRefund: true },
+            }),
+        ]);
         const byAccount = new Map<string, number>();
         const byBucket = new Map<string, number>();
         for (const r of rows) {
@@ -308,7 +319,21 @@ export class AccountYieldService implements OnModuleInit, OnModuleDestroy {
             byAccount.set(r.accountId, (byAccount.get(r.accountId) ?? 0) + value);
             byBucket.set(`${r.accountId}:${r.bucket}`, value);
         }
+
+        const taxByAccount = new Map<string, number>();
+        const taxByBucket = new Map<string, number>();
+        for (const r of allTaxRows) {
+            const tax = Math.max((r._sum.taxAmount ?? 0) - (r._sum.taxRefund ?? 0), 0);
+            taxByAccount.set(r.accountId, (taxByAccount.get(r.accountId) ?? 0) + tax);
+            taxByBucket.set(`${r.accountId}:${r.bucket}`, tax);
+        }
+
         const round = (m: Map<string, number>) => new Map([...m].map(([k, v]) => [k, Math.round(v * 100) / 100]));
-        return { byAccount: round(byAccount), byBucket: round(byBucket) };
+        return {
+            byAccount: round(byAccount),
+            byBucket: round(byBucket),
+            taxByAccount: round(taxByAccount),
+            taxByBucket: round(taxByBucket),
+        };
     }
 }

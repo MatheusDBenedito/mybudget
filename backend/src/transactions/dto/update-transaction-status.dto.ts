@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 import { TransactionStatus } from '@prisma/client';
 
 export class UpdateTransactionStatusDto {
@@ -11,4 +11,10 @@ export class UpdateTransactionStatusDto {
     @IsString()
     @IsOptional()
     accountId?: string;
+
+    // Permite ajustar o valor estimado para o valor real no momento do pagamento/recebimento.
+    @IsNumber()
+    @IsPositive()
+    @IsOptional()
+    amount?: number;
 }

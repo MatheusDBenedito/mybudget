@@ -5,7 +5,9 @@ import { Money } from "@/components/Money";
 import { useId, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import type { ApiTransaction } from "@/components/cash-flow/MonthTransactions";
@@ -18,15 +20,17 @@ interface SettleTransactionDialogProps {
     transaction: ApiTransaction | null;
     accounts: SettleAccount[];
     onCancel: () => void;
-    onConfirm: (accountId: string) => void;
+    onConfirm: (accountId: string, amount?: number) => void;
 }
 
-/** Asks which account receives (income) or pays (expense) a transaction, previewing the new balance. */
+/** Asks which account receives (income) or pays (expense) a transaction, allowing value adjustment for estimates. */
 export function SettleTransactionDialog({ transaction, accounts, onCancel, onConfirm }: SettleTransactionDialogProps) {
     const groupId = useId();
-    // Only the user's explicit pick is stored, tied to the transaction it was made for;
-    // otherwise default to the account the transaction was created with
+    const amountInputId = useId();
+    // Only the user's explicit picks are stored, tied to the transaction they were made for
     const [choice, setChoice] = useState<{ transactionId: string; accountId: string } | null>(null);
+    const [amountOverride, setAmountOverride] = useState<{ transactionId: string; amount: number } | null>(null);
+
     // Payments default to (and list first) accounts that don't yield, so money in yielding accounts keeps earning
     const kind = transaction?.type === "INCOME" ? "INCOME" : "EXPENSE";
     const options = kind === "EXPENSE" ? sortForPayment(accounts) : accounts;
@@ -34,8 +38,13 @@ export function SettleTransactionDialog({ transaction, accounts, onCancel, onCon
     const accountId = choice && choice.transactionId === transaction?.id ? choice.accountId : defaultAccountId;
     const setAccountId = (id: string) => transaction && setChoice({ transactionId: transaction.id, accountId: id });
 
+    const effectiveAmount = amountOverride && amountOverride.transactionId === transaction?.id
+        ? amountOverride.amount
+        : (transaction?.amount ?? 0);
+
     const isIncome = transaction?.type === "INCOME";
-    const delta = transaction ? (isIncome ? transaction.amount : -transaction.amount) : 0;
+    const delta = transaction ? (isIncome ? effectiveAmount : -effectiveAmount) : 0;
+    const amountChanged = transaction ? Math.abs(effectiveAmount - transaction.amount) > 0.005 : false;
 
     return (
         <Dialog open={!!transaction} onOpenChange={(open) => { if (!open) onCancel(); }}>
@@ -47,12 +56,30 @@ export function SettleTransactionDialog({ transaction, accounts, onCancel, onCon
                             <>
                                 {transaction.description} · {formatDate(transaction.date)} ·{" "}
                                 <span className={cn("font-medium", isIncome ? "text-positive" : "text-negative")}>
-                                    {isIncome ? "+" : "-"}<Money value={transaction.amount} />
+                                    {isIncome ? "+" : "-"}<Money value={effectiveAmount} />
                                 </span>
                             </>
                         )}
                     </DialogDescription>
                 </DialogHeader>
+
+                {transaction && (
+                    <div className="space-y-1.5">
+                        <Label htmlFor={amountInputId}>
+                            {isIncome ? "Valor recebido (R$)" : "Valor pago (R$)"}
+                            {transaction.isFixed && (
+                                <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                                    (ajuste se o valor real foi diferente da estimativa)
+                                </span>
+                            )}
+                        </Label>
+                        <CurrencyInput
+                            id={amountInputId}
+                            value={effectiveAmount || ""}
+                            onChange={(val) => setAmountOverride({ transactionId: transaction.id, amount: val || 0 })}
+                        />
+                    </div>
+                )}
 
                 <fieldset className="space-y-2">
                     <legend className="mb-2 text-sm font-medium">
@@ -97,7 +124,11 @@ export function SettleTransactionDialog({ transaction, accounts, onCancel, onCon
 
                 <div className="flex justify-end gap-2 pt-2">
                     <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button>
-                    <Button type="button" disabled={!accountId} onClick={() => onConfirm(accountId)}>
+                    <Button
+                        type="button"
+                        disabled={!accountId || effectiveAmount <= 0}
+                        onClick={() => onConfirm(accountId, amountChanged ? effectiveAmount : undefined)}
+                    >
                         {isIncome ? "Confirmar recebimento" : "Confirmar pagamento"}
                     </Button>
                 </div>

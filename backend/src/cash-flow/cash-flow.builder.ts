@@ -9,12 +9,20 @@ export type CashFlowTxInput = {
     category?: { name: string } | null;
 };
 
+export type CashFlowCardHolderInput = {
+    id: string;
+    name: string;
+    total: number;
+};
+
 export type CashFlowCardInput = {
     id: string;
     name: string;
     dueDay: number;
     /** Invoice total for the month (purchases minus refunds) */
     total: number;
+    /** Optional per-holder totals when the card has supplementary holders */
+    holders?: CashFlowCardHolderInput[];
 };
 
 export type CashFlowMonthInput = {
@@ -34,6 +42,8 @@ export type CashFlowRow = {
     /** Part still pending per month (0 once received/paid) */
     open: number[];
     total: number;
+    /** Optional breakdown inside the same row (e.g. supplementary card holders) */
+    subRows?: CashFlowRow[];
 };
 
 export type CashFlowSection = {
@@ -158,16 +168,31 @@ export function buildCashFlow({ months, leadIn = [], openingBalance, today }: Bu
             return { key: normalizeKey(label), label, amount: tx.amount, open: tx.status === 'PENDING' };
         });
 
+    const cardRows = groupRows(months, m => m.cards.map(c => ({
+        key: c.id,
+        label: c.name,
+        amount: Math.max(c.total, 0),
+        open: isCardInvoiceOpen(m, c, today),
+    }))).map(row => {
+        const subRows = groupRows(months, m => {
+            const card = m.cards.find(c => c.id === row.key);
+            if (!card?.holders?.length) return [];
+            const isOpen = isCardInvoiceOpen(m, card, today);
+            return card.holders.map(h => ({
+                key: h.id,
+                label: h.name,
+                amount: Math.max(h.total, 0),
+                open: isOpen,
+            }));
+        });
+        return subRows.length > 1 ? { ...row, subRows } : row;
+    });
+
     const sectionRows: Record<CashFlowSectionKey, CashFlowRow[]> = {
         INCOME: groupRows(months, m => txRows(m, tx => tx.type === 'INCOME')),
         FIXED: groupRows(months, m => txRows(m, tx => tx.type === 'EXPENSE' && tx.isFixed)),
         // Card rows are listed even when empty so every card shows up in the sheet
-        CARDS: groupRows(months, m => m.cards.map(c => ({
-            key: c.id,
-            label: c.name,
-            amount: Math.max(c.total, 0),
-            open: isCardInvoiceOpen(m, c, today),
-        }))),
+        CARDS: cardRows,
         VARIABLE: groupRows(months, m => txRows(m, tx => tx.type === 'EXPENSE' && !tx.isFixed)),
     };
 
@@ -192,10 +217,10 @@ export function buildCashFlow({ months, leadIn = [], openingBalance, today }: Bu
     const openExpenses = months.map((_, i) => sumSections(expenseSections, s => s.openTotals, i));
     const openNetByMonth = months.map((_, i) => round(openIncome[i] - openExpenses[i]));
 
-    // Running balance starts from today's real balance and only adds what is still open,
-    // so settling an item (which moves the account balance) leaves the projection unchanged.
+    // Running balance starts from today's gross total (accounts + investments) and adds what is still open
+    // (pending income minus pending expenses/open card invoices) from the current month onward.
     const currentIndex = monthIndex(today.getFullYear(), today.getMonth() + 1);
-    let running = openingBalance;
+    let running = round(openingBalance);
 
     for (const m of leadIn) {
         if (monthIndex(m.year, m.month) >= currentIndex) running = round(running + openNet(m, today));

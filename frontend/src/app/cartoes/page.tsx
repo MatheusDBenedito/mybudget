@@ -5,7 +5,7 @@ import { Money } from "@/components/Money";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, CreditCard as CreditCardIcon, FileText, Edit2, Repeat, RotateCcw, Receipt, Gauge, List as ListIcon, Layers, ShoppingBag, Star, Users } from "lucide-react";
+import { Plus, CreditCard as CreditCardIcon, FileText, Edit2, Repeat, RotateCcw, Receipt, Gauge, List as ListIcon, Layers, ShoppingBag, Star, Users, User } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { Panel } from "@/components/Panel";
@@ -16,6 +16,7 @@ import { estimatePointsFromSpend, formatPoints } from "@/lib/miles";
 import {
     filterByHolder,
     groupInvoice,
+    groupInvoiceByHolder,
     holderLabel,
     holderTotals,
     holdersOf,
@@ -83,42 +84,123 @@ const GROUP_EMPTY: Record<InvoiceGroupKey, string> = {
     single: "Nenhuma compra à vista nesta fatura.",
 };
 
-/** Invoice split into Fixos (always on top), Parcelados and À vista, each collapsible, with the invoice total at the end. */
-function InvoiceList({ transactions, categories, onEditSuccess, openGroups, onToggleGroup, showHolder = false, grandTotal }: {
+/** Collapsible Fixos / Parcelados / À vista groups for a list of invoice transactions. */
+function InvoiceTypeGroups({ transactions, categories, onEditSuccess, openGroups, onToggleGroup, showHolder = false, idPrefix = "" }: {
     transactions: ApiInvoiceItem[];
     categories: ApiCategory[];
     onEditSuccess: () => void;
-    openGroups: Record<InvoiceGroupKey, boolean>;
+    openGroups: Record<string, boolean>;
     onToggleGroup: (key: InvoiceGroupKey) => void;
+    showHolder?: boolean;
+    idPrefix?: string;
+}) {
+    const { groups } = groupInvoice(transactions);
+
+    return (
+        <div className="space-y-3">
+            {groups.map(group => {
+                const stateKey = idPrefix ? `${idPrefix}-${group.key}` : group.key;
+                const isOpen = openGroups[stateKey] ?? openGroups[group.key] ?? true;
+                return (
+                    <InvoiceGroupSection
+                        key={stateKey}
+                        id={stateKey}
+                        title={group.label}
+                        icon={GROUP_ICONS[group.key]}
+                        count={group.items.length}
+                        total={group.total}
+                        isOpen={isOpen}
+                        onToggle={() => onToggleGroup(group.key)}
+                    >
+                        {group.items.length > 0
+                            ? <InvoiceItems transactions={group.items} categories={categories} onEditSuccess={onEditSuccess} showHolder={showHolder} />
+                            : <p className="px-4 py-5 text-center text-sm text-muted-foreground">{GROUP_EMPTY[group.key]}</p>}
+                    </InvoiceGroupSection>
+                );
+            })}
+        </div>
+    );
+}
+
+/** Invoice split into Fixos / Parcelados / À vista or separated per holder (with Fixos / Parcelados / À vista inside each holder). */
+function InvoiceList({ transactions, categories, onEditSuccess, openGroups, onToggleGroup, showHolder = false, grandTotal, groupBy = "type", holders = [], openHolders = {}, onToggleHolder }: {
+    transactions: ApiInvoiceItem[];
+    categories: ApiCategory[];
+    onEditSuccess: () => void;
+    openGroups: Record<string, boolean>;
+    onToggleGroup: (key: string) => void;
     /** Shows the holder badge on each line (only when the card has supplementary holders) */
     showHolder?: boolean;
     /** Full invoice total, shown when the list is filtered by holder */
     grandTotal?: number;
+    groupBy?: "type" | "holder";
+    holders?: ApiCardHolder[];
+    openHolders?: Record<string, boolean>;
+    onToggleHolder?: (holderId: string) => void;
 }) {
-    if (transactions.length === 0) {
+    if (transactions.length === 0 && groupBy !== "holder") {
         return <InvoiceItems transactions={[]} categories={categories} onEditSuccess={onEditSuccess} />;
     }
-    const { groups, total } = groupInvoice(transactions);
+
+    if (groupBy === "holder" && holders.length > 1) {
+        const { sections, total } = groupInvoiceByHolder(transactions, holders);
+
+        return (
+            <div className="space-y-3 p-4">
+                {sections.map(section => {
+                    const isOpen = openHolders[section.id] ?? true;
+                    const label = section.isMain ? `${section.name} (Titular)` : `${section.name} (Adicional)`;
+                    return (
+                        <InvoiceGroupSection
+                            key={section.id}
+                            id={`holder-${section.id}`}
+                            title={label}
+                            icon={section.isMain ? User : Users}
+                            count={section.items.length}
+                            total={section.total}
+                            isOpen={isOpen}
+                            onToggle={() => onToggleHolder?.(section.id)}
+                        >
+                            {section.items.length > 0 ? (
+                                <div className="bg-muted/20 p-3">
+                                    <InvoiceTypeGroups
+                                        transactions={section.items}
+                                        categories={categories}
+                                        onEditSuccess={onEditSuccess}
+                                        openGroups={openGroups}
+                                        onToggleGroup={(groupKey) => onToggleGroup(`${section.id}-${groupKey}`)}
+                                        showHolder={false}
+                                        idPrefix={section.id}
+                                    />
+                                </div>
+                            ) : (
+                                <p className="px-4 py-5 text-center text-sm text-muted-foreground">Nenhum lançamento para {section.name} nesta fatura.</p>
+                            )}
+                        </InvoiceGroupSection>
+                    );
+                })}
+
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-4 py-3">
+                    <span className="text-sm font-medium">Total da fatura</span>
+                    <span className="text-lg font-medium tabular-nums"><Money value={total} /></span>
+                </div>
+            </div>
+        );
+    }
+
+    const { total } = groupInvoice(transactions);
     const isFiltered = grandTotal != null && Math.abs(grandTotal - total) > 0.005;
 
     return (
         <div className="space-y-3 p-4">
-            {groups.map(group => (
-                <InvoiceGroupSection
-                    key={group.key}
-                    id={group.key}
-                    title={group.label}
-                    icon={GROUP_ICONS[group.key]}
-                    count={group.items.length}
-                    total={group.total}
-                    isOpen={openGroups[group.key]}
-                    onToggle={() => onToggleGroup(group.key)}
-                >
-                    {group.items.length > 0
-                        ? <InvoiceItems transactions={group.items} categories={categories} onEditSuccess={onEditSuccess} showHolder={showHolder} />
-                        : <p className="px-4 py-5 text-center text-sm text-muted-foreground">{GROUP_EMPTY[group.key]}</p>}
-                </InvoiceGroupSection>
-            ))}
+            <InvoiceTypeGroups
+                transactions={transactions}
+                categories={categories}
+                onEditSuccess={onEditSuccess}
+                openGroups={openGroups}
+                onToggleGroup={onToggleGroup}
+                showHolder={showHolder}
+            />
 
             <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-4 py-3">
                 <span className="text-sm font-medium">{isFiltered ? "Total do portador" : "Total da fatura"}</span>
@@ -249,9 +331,12 @@ export default function CartoesPage() {
     const [usdRate, setUsdRate] = useState<number | null>(null);
     // Holder selected in the invoice chips; null means "all holders"
     const [holderFilter, setHolderFilter] = useState<string | null>(null);
+    const [groupBy, setGroupBy] = useState<"holder" | "type">("holder");
     // Open/closed state of each invoice group; kept when switching months or cards
-    const [openGroups, setOpenGroups] = useState<Record<InvoiceGroupKey, boolean>>({ fixed: true, installments: true, single: true });
-    const toggleGroup = (key: InvoiceGroupKey) => setOpenGroups(prev => ({ ...prev, [key]: !prev[key] }));
+    const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ fixed: true, installments: true, single: true });
+    const [openHolders, setOpenHolders] = useState<Record<string, boolean>>({});
+    const toggleGroup = (key: string) => setOpenGroups(prev => ({ ...prev, [key]: !(prev[key] ?? true) }));
+    const toggleHolderSection = (id: string) => setOpenHolders(prev => ({ ...prev, [id]: !(prev[id] ?? true) }));
 
     useEffect(() => {
         // Dollar rate is only needed for the points estimate; failures just hide it
@@ -422,7 +507,6 @@ export default function CartoesPage() {
     const cardHolders = holdersOf(card.holders);
     const invoiceItems = invoices[activeTab] || [];
     const holderSplits = holderTotals(invoiceItems, card.holders);
-    const visibleInvoiceItems = filterByHolder(invoiceItems, holderFilter);
 
     return (
         <div className="space-y-6">
@@ -518,6 +602,16 @@ export default function CartoesPage() {
 
                 <StatCard title={`Fatura ${activeTab}`} icon={Receipt} info="Soma dos lançamentos deste cartão no mês selecionado.">
                     <div className="text-xl font-medium tabular-nums"><Money value={currentInvoiceTotal} /></div>
+                    {cardHolders.length > 1 && (
+                        <ul className="mt-2 space-y-1 border-t pt-2 text-xs text-muted-foreground">
+                            {holderSplits.filter(s => s.id !== "unknown" || s.count > 0).map(split => (
+                                <li key={split.id} className="flex items-center justify-between gap-2">
+                                    <span className="truncate">{split.name}</span>
+                                    <span className="font-medium text-foreground tabular-nums"><Money value={split.total} /></span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
                     <div className="mt-3 text-sm text-muted-foreground">Todos os cartões</div>
                     <div className="text-[15px] tabular-nums"><Money value={globalTotals[activeTab] || 0} /></div>
                     {card.pointsPerDollar ? (
@@ -558,38 +652,67 @@ export default function CartoesPage() {
             <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-0">
                 <Panel title="Lançamentos" icon={ListIcon} count={invoiceItems.length} flush>
                     {cardHolders.length > 1 && (
-                        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5" role="group" aria-label="Filtrar fatura por portador">
-                            <button
-                                type="button"
-                                onClick={() => setHolderFilter(null)}
-                                aria-pressed={holderFilter === null}
-                                className={cn(
-                                    "flex items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-ring",
-                                    holderFilter === null
-                                        ? "border-foreground bg-foreground font-medium text-background"
-                                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                                )}
-                            >
-                                Todos
-                                <span className="tabular-nums"><Money value={currentInvoiceTotal} /></span>
-                            </button>
-                            {holderSplits.filter(split => split.id !== "unknown").map(split => (
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
+                            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filtrar fatura por portador">
                                 <button
-                                    key={split.id}
                                     type="button"
-                                    onClick={() => setHolderFilter(split.id)}
-                                    aria-pressed={holderFilter === split.id}
+                                    onClick={() => setHolderFilter(null)}
+                                    aria-pressed={holderFilter === null}
                                     className={cn(
                                         "flex items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-ring",
-                                        holderFilter === split.id
+                                        holderFilter === null
                                             ? "border-foreground bg-foreground font-medium text-background"
                                             : "text-muted-foreground hover:bg-muted hover:text-foreground",
                                     )}
                                 >
-                                    {split.name}
-                                    <span className="tabular-nums"><Money value={split.total} /></span>
+                                    Todos
+                                    <span className="tabular-nums"><Money value={currentInvoiceTotal} /></span>
                                 </button>
-                            ))}
+                                {holderSplits.filter(split => split.id !== "unknown").map(split => (
+                                    <button
+                                        key={split.id}
+                                        type="button"
+                                        onClick={() => setHolderFilter(split.id)}
+                                        aria-pressed={holderFilter === split.id}
+                                        className={cn(
+                                            "flex items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+                                            holderFilter === split.id
+                                                ? "border-foreground bg-foreground font-medium text-background"
+                                                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                                        )}
+                                    >
+                                        {split.name}
+                                        <span className="tabular-nums"><Money value={split.total} /></span>
+                                    </button>
+                                ))}
+                            </div>
+
+                            {holderFilter === null && (
+                                <div className="inline-flex rounded-lg bg-muted p-0.5 text-xs" role="group" aria-label="Agrupamento da fatura">
+                                    <button
+                                        type="button"
+                                        onClick={() => setGroupBy("holder")}
+                                        aria-pressed={groupBy === "holder"}
+                                        className={cn(
+                                            "rounded-md px-2.5 py-1 transition-colors",
+                                            groupBy === "holder" ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                                        )}
+                                    >
+                                        Por portador
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setGroupBy("type")}
+                                        aria-pressed={groupBy === "type"}
+                                        className={cn(
+                                            "rounded-md px-2.5 py-1 transition-colors",
+                                            groupBy === "type" ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                                        )}
+                                    >
+                                        Por tipo
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -619,6 +742,10 @@ export default function CartoesPage() {
                                 openGroups={openGroups}
                                 onToggleGroup={toggleGroup}
                                 showHolder={cardHolders.length > 1}
+                                groupBy={cardHolders.length > 1 && !holderFilter ? groupBy : "type"}
+                                holders={cardHolders}
+                                openHolders={openHolders}
+                                onToggleHolder={toggleHolderSection}
                                 grandTotal={holderFilter
                                     ? (invoices[m.label] || []).reduce((acc, item) => acc + item.amount, 0)
                                     : undefined}

@@ -120,11 +120,11 @@ myBudget/
 - `TransactionType`: `INCOME | EXPENSE | TRANSFER`
 - `TransactionStatus`: `PENDING | PAID | CANCELLED`
 - `AccountType`: `CHECKING | YIELDING`
-- `InvestmentType`: `FIXED_INCOME | VARIABLE_INCOME | CRYPTO | US_STOCK | OTHER`
+- `InvestmentType`: `FIXED_INCOME | VARIABLE_INCOME | FII | CRYPTO | US_STOCK | OTHER`
 - `MilesStatus`: `PENDING | TRANSFERRED | CREDITED`
 
 ### Models e Relações Principais
-1. **`Account`**: `name`, `balance` (`Float`), `type` (`CHECKING` default | `YIELDING`), `cdiPercentage` (`Float?`), `yieldSince` (`DateTime?`). Relaciona com `Transaction[]`, `CreditCard[]`, `RecurringExpense[]`, `YieldPot[]`, `AccountYield[]`, `BalanceAdjustment[]`, `AccountTransfer[]` (`TransfersOut` / `TransfersIn`).
+1. **`Account`**: `name`, `balance` (`Float`, em BRL), `currency` (`"BRL"` default | `"USD"`), `balanceUsd` (`Float?` — saldo em dólares quando `currency == "USD"`), `investedBrl` (`Float?` — valor gasto em reais na compra dos dólares), `purchaseExchangeRate` (`Float?` — câmbio pago na compra), `type` (`CHECKING` default | `YIELDING`), `cdiPercentage` (`Float?`), `yieldSince` (`DateTime?`). Para contas em `USD`, o `balance` em BRL flutua automaticamente conforme a cotação atual do dólar (`USD-BRL` via AwesomeAPI/Yahoo Finance), retornando também `currentExchangeRate`, `variationBrl` e `variationPct`. Relaciona com `Transaction[]`, `CreditCard[]`, `RecurringExpense[]`, `YieldPot[]`, `AccountYield[]`, `BalanceAdjustment[]`, `AccountTransfer[]` (`TransfersOut` / `TransfersIn`).
 2. **`YieldPot`** ("cofrinho"): pertence a `Account` (`onDelete: Cascade`), possui `name`, `cdiPercentage`, `balance` (já embutido no `Account.balance`), e `PotMovement[]` (`amount`, `kind`: `"transfer" | "adjustment"`, `date`).
 3. **`AccountYield`**: rendimento diário creditado por conta, `bucket` (`"main"` para saldo livre ou `pot.id`), e `date` (`@db.Date`) com `@@unique([accountId, bucket, date])`. Registra `cdiDailyRate`, `cdiPercentage`, `balanceBefore`, `grossAmount`, `irRate`, `taxAmount`, `netAmount`, `taxRefund`.
 4. **`BalanceAdjustment`**: histórico datado de ajustes manuais de saldo em `Account` (`amount`, `date`) para cálculo retroativo correto de rendimentos em lotes.
@@ -135,9 +135,10 @@ myBudget/
 9. **`CardHolder`**: portador do cartão (`creditCardId`, `name`, `last4?`, `isMain`), `@@unique([creditCardId, name])`. Titular e adicionais compartilham limite e fatura.
 10. **`CardTransaction`**: `description`, `amount` (positivo para compra, negativo para estorno), `date` (data da compra), `invoiceDate` (data de vencimento da fatura calculada), `installments`, `isFixed`, `ignoredInvoices` (lista de `"YYYY-MM"` ignorados na projeção fixa), `installmentGroupId?`, `creditCardId`, `cardHolderId` (`onDelete: Restrict`), `categoryId?`.
 11. **`RecurringExpense`**: modelo de recorrência em conta (`description`, `amount`, `billingDay`, `isActive`, `accountId`, `categoryId?`).
-12. **`Investment`**: `name`, `type`, `investedAmount`, `currentValue`, `investmentDate?`, `cdiPercentage?`, `sector?`, `tickerCode?`, `averagePrice?`, `currentPrice?`, `quantity?`, `purchaseExchangeRate?` (para `US_STOCK`).
+12. **`Investment`**: `name`, `type`, `investedAmount`, `currentValue`, `investmentDate?`, `cdiPercentage?`, `sector?`, `tickerCode?`, `averagePrice?`, `currentPrice?`, `quantity?`, `purchaseExchangeRate?` (para `US_STOCK`). Relaciona com `InvestmentDividend[]`.
+12a. **`InvestmentDividend`**: histórico de proventos (dividendos/JCP/rendimentos) recebidos por aporte (`investmentId`, `tickerCode`, `date`, `amountPerShare`, `quantity`, `totalOriginal`, `currency`, `totalBrl`, `@@unique([investmentId, date, amountPerShare])`).
 13. **`MilesEntry`**: `program`, `points`, `status`, `expectedCreditDate`, `creditCardId?` (`onDelete: SetNull`), `origin?`, `referenceMonth?`, `referenceYear?`, `notes?`.
-14. **`DashboardLayout`**: singleton (`id = "default"`), `items` (`Json` com ordem e largura dos blocos do Resumo).
+14. **`DashboardLayout`**: singleton (`id = "default"`), `items` (`Json` com ordem, largura em `%` e altura em `px` dos blocos do Resumo).
 
 ---
 
@@ -156,7 +157,7 @@ myBudget/
   - `POST /accounts/pots/:potId/deposit`, `POST /accounts/pots/:potId/withdraw`, `POST /accounts/pots/:potId/adjust`
   - `GET /accounts/transfers`, `POST /accounts/transfers`, `DELETE /accounts/transfers/:transferId`
 - **Transactions & Recurring (`TransactionsController`, `RecurringExpensesController`):**
-  - `GET /transactions`, `POST /transactions`, `PATCH /transactions/:id/status`, `DELETE /transactions/:id`
+  - `GET /transactions`, `POST /transactions`, `PATCH /transactions/:id`, `PATCH /transactions/:id/status`, `DELETE /transactions/:id`
   - `POST /recurring-expenses`, `POST /recurring-expenses/process-monthly`
 - **Cash Flow (`CashFlowController`):**
   - `GET /cash-flow`
@@ -168,8 +169,9 @@ myBudget/
   - `POST /card-transactions`, `POST /card-transactions/preview`, `POST /card-transactions/:id/estorno`, `PATCH /card-transactions/:id`, `DELETE /card-transactions/:id`
   - `GET /card-transactions/summary/invoice`, `GET /card-transactions/:creditCardId/invoice`
   - `POST /card-transactions/import-pdf`, `POST /card-transactions/import-pdf/debug`, `POST /card-transactions/import-pdf/confirm`
-- **Investments & Miles:**
+- **Investments, Dividends & Miles:**
   - `GET /investments`, `POST /investments`, `GET /investments/:id`, `PATCH /investments/:id`, `DELETE /investments/:id`
+  - `GET /investments/dividends`, `POST /investments/dividends/sync`
   - `GET /miles`, `POST /miles`, `PATCH /miles/:id`, `DELETE /miles/:id`
 
 ---
@@ -188,31 +190,33 @@ Qualquer plano executado neste projeto deve preservar estas regras:
 
 2. **Transações em Conta (`transactions`):**
    - Ao criar sem `status`, `TransactionsService.create` define `PAID` se `date <= fim de hoje`, senão `PENDING`. Apenas transações `PAID` alteram `Account.balance`.
-   - Transações com `isFixed: true` são projetadas para meses futuros quando consultadas por mês, respeitando `fixedUntil` (quando encerrada) e evitando duplicação caso já haja registro correspondente no mês.
+   - Transações com `isFixed: true` são projetadas para meses futuros usando o último registro ativo da série (ignorando registros anteriores já encerrados por `fixedUntil` antes da marcação de série ativa) e evitando duplicação por `(type, description)` independentemente do valor ajustado no mês.
+   - `PATCH /transactions/:id` e `PATCH /transactions/:id/status` permitem alterar estimativas mensais (`scope: 'single'` materializa/atualiza apenas aquele mês com `fixedUntil` no fim do mês, mantendo a estimativa futura intacta; `scope: 'series'` atualiza deste mês em diante), sincronizando diferenças no `Account.balance` se já estiver `PAID`.
 
 3. **Cartões de Crédito e Faturas (`credit-cards`, `card-transactions`, `card-holders`):**
    - **Data da fatura (`calculateInvoiceDate`):** o fechamento é `dueDay - invoiceClosingOffset` dias no mês (limitado ao último dia válido do mês). Compras **no dia ou após o fechamento** vão para a fatura do mês seguinte.
    - **Parcelamento sem perda de centavos (`distributeInstallments`):** converte para centavos e distribui o resto nas primeiras parcelas. Gera `N` registros flat de `CardTransaction` ligados por `installmentGroupId`, avançando a data simulada mês a mês.
    - **Fixos no cartão:** usam `isFixed: true` e `ignoredInvoices` (meses `"YYYY-MM"` suprimidos).
-   - **Agrupamento na UI (`groupInvoice`):** separa sempre em **Fixos** (primeiro), **Parcelados** e **À vista** (estornos negativos permanecem em À vista).
-   - **Portadores (`CardHolder`):** toda `CardTransaction` referencia um `cardHolderId` (`onDelete: Restrict`).
+   - **Agrupamento na UI (`groupInvoice`, `groupInvoiceByHolder`):** separa em **Fixos** (primeiro), **Parcelados** e **À vista** (estornos negativos permanecem em À vista). Em `/cartoes`, quando há mais de 1 portador, o modo padrão **"Por portador"** separa Titular e Adicionais em seções colapsáveis dentro do mesmo cartão mantendo **Fixos / Parcelados / À vista** dentro de cada portador, com alternância para **"Por tipo"**. No **Resumo** (`CardsCard.tsx`), o card exibe sempre a soma inteira do cartão sem diferenciar por portador.
+   - **Portadores (`CardHolder`):** toda `CardTransaction` referencia um `cardHolderId` (`onDelete: Restrict`). Portadores adicionais podem ser gerenciados tanto em `/cartoes` quanto em `/configuracoes` (`CardManager.tsx` / `CardHoldersModal.tsx`) e já cadastrados na criação do cartão (`CreateCardModal.tsx`).
    - **Importação PDF (`PdfParserService`):** usa `pdfjs-dist` (suporta senha), pula linhas com keywords de crédito/pagamento/estorno (`SKIP_KEYWORDS`), sugere categorias e passa por preview/confirm antes de gravar.
 
 4. **Fluxo de Caixa (`cash-flow/cash-flow.builder.ts`):**
    - Ignora transações com `status === 'CANCELLED'` ou `type === 'TRANSFER'`.
    - Organiza em 4 seções: `INCOME` (Recebimentos), `FIXED` (Contas fixas), `CARDS` (Cartões de crédito) e `VARIABLE` (Outras despesas).
    - Distingue valores planejados (`values`) de valores ainda em aberto (`open`). Para faturas de cartão, não há flag `PAID` dedicada: `isCardInvoiceOpen` considera a fatura quitada após passar o `dueDay` daquele mês.
+   - Quando um cartão tem mais de 1 portador, `CashFlowRow.subRows` expõe os subtotais por portador de forma expansível em `CashFlowSheet.tsx`, mantendo `row.values` e `summary.expenses` consolidados em uma única linha.
    - `projectedBalance` carrega o saldo atual (`openingBalance`) mês a mês usando `leadIn` e retorna `null` para meses já fechados.
 
 5. **Investimentos e Fontes Externas (`investments.service.ts`):**
    - **Renda Fixa (`FIXED_INCOME`):** usa série histórica do CDI (BCB série 12, cache 1h, fallback `14.9%` a.a. / 252 dias úteis) e aplica tabela regressiva de IR por dias corridos.
-   - **B3 (`VARIABLE_INCOME`):** cotações via `brapi.dev` (requer `BRAPI_TOKEN`; plano gratuito exige 1 ticker por requisição com intervalo sequencial `300ms` e cache de 20 min).
+   - **B3 — Ações (`VARIABLE_INCOME`) e Fundos Imobiliários (`FII`):** cotações via `brapi.dev` (requer `BRAPI_TOKEN`; plano gratuito exige 1 ticker por requisição com intervalo sequencial `300ms` e cache de 20 min).
    - **EUA (`US_STOCK`):** cotações em USD via Yahoo Finance (primário) com fallback `brapi.dev` (cache 15 min) + câmbio `USD-BRL` via AwesomeAPI (cache 5 min). Calcula `currentValue` em BRL e separa `assetGainBrl` vs `fxGainBrl`.
    - **Cripto (`CRYPTO`):** cotações em BRL via CoinGecko (cache 5 min, mapa `COINGECKO_ID_MAP`).
 
 6. **Milhas e Layout do Dashboard:**
    - **Milhas:** calcula estimativa de pontos por fatura usando `pointsPerDollar` do cartão e controla pipeline `PENDING -> TRANSFERRED -> CREDITED` + calculadora de bônus de transferência (`frontend/src/lib/miles.ts`).
-   - **Dashboard Layout:** blocos disponíveis (`forecast`, `bills`, `moneywhere`, `cards`, `spending`, `cashflow-chart`, `investments-chart`) com larguras permitidas `[4, 6, 8, 12]`. `normalizeLayout()` garante preservação de ordem, remoção de duplicatas/inválidos e inclusão automática de novos blocos. Persiste em `DashboardLayout` (`PUT /dashboard-layout`) com cache local (`mybudget:dashboard-layout:v1`).
+   - **Dashboard Layout:** blocos disponíveis (`forecast`, `bills`, `moneywhere`, `cards`, `spending`, `cashflow-chart`, `investments-chart`). Layout usa `flex-wrap` responsivo (`md:` >= 768px) com **largura livre em porcentagem (`20..100%`, passo `1%`, sendo `33`/`67` formatados como `33.33%`/`66.66%` para encaixe exato em terços)** e **altura livre em pixels (`260..760px`, padrão `460px`)**. O redimensionamento ocorre diretamente pelo contorno (borda direita, borda inferior e canto inferior direito) em `DashboardGrid.tsx`, e no modo **Personalizar** os cards são arrastáveis diretamente para reposicionar (sem barras de botões `< >`, `P/M/G` ou `1/3`). `normalizeLayout()` preserva ordem, migra valores legados de 12 colunas (`3..12`) e alturas (`sm/md/lg`), remove duplicatas/inválidos e inclui novos blocos automaticamente. Persiste em `DashboardLayout` (`PUT /dashboard-layout`) com cache local (`mybudget:dashboard-layout:v1`).
 
 ---
 
@@ -239,4 +243,32 @@ Qualquer plano executado neste projeto deve preservar estas regras:
 3. **Datas:** atenção a fuso horário (UTC vs local) — datas de operação no backend costumam usar local noon ou chaves `yyyy-mm-dd` (`toDateKey`); no frontend, datas ISO vindas da API usam `fromApiDate` quando aplicável.
 4. **Endpoints no frontend:** lembrar que `http://localhost:3333` está referenciado diretamente nos arquivos do frontend; manter consistência ou centralizar se o plano pedir.
 5. **Validação final:** rodar `node --test src/lib/*.test.ts` e `npm run build` / `npm run lint` no frontend, e `npm run build` + `npx jest` nos specs afetados do backend.
+6. **Manutenção deste documento:** após implementar novas funcionalidades ou alterar contratos/regras, atualizar este `PROJECT_CONTEXT.md`.
+
+---
+
+## 10. Histórico de Alterações Recentes (`feat/resumo-layout-e-adicionais`)
+
+- **Resumo — Redimensionamento livre pelo contorno e altura padronizada flexível:**
+  - `backend/src/dashboard-layout/dashboard-layout.constants.ts` e `dto/update-dashboard-layout.dto.ts`: largura agora aceita porcentagem (`20..100`, mantendo `3..12` para compatibilidade) e altura opcional em pixels (`260..760`).
+  - `frontend/src/lib/dashboard-layout.ts` e `dashboard-layout.test.ts`: `width` em `%` (`20..100`, terceiros `33.33%`/`66.66%`), `height` em `px` (`260..760`, padrão `460`), `setBlockSize()` e migração automática de formatos legados (`3..12` cols e `'sm' | 'md' | 'lg'`).
+  - `frontend/src/components/dashboard/DashboardGrid.tsx` e `useDashboardLayout.ts`: removido o cabeçalho de botões (`< >`, `1/3..100%`, `P/M/G`); adicionadas alças no contorno direito (`ew-resize`), inferior (`ns-resize`) e canto (`nwse-resize`) com atualização ao vivo; grid convertido para `flex-wrap` (`md:w-[var(--card-w)]` e `md:h-[var(--card-h)]`) permitindo 3+ cards lado a lado a partir de `768px`.
+  - Widgets (`DashCard.tsx`, `Panel.tsx`, `ForecastCard.tsx`, `BillsCard.tsx`, `MoneyWhereCard.tsx`, `CardsCard.tsx`, `SpendingCard.tsx`, `DonutChart.tsx`, `IncomeVsExpensesChart.tsx`, `app/page.tsx`): padronizados para preencher `h-full` com áreas internas roláveis (`overflow-y-auto`); `CardsCard` mantém o total consolidado do cartão no Resumo sem diferenciar por portador e preserva a proporção fixa do cartão visual (`aspect-[1.65] max-w-[300px]`) sem esticar ao expandir o widget.
+- **Cartões Adicionais dentro do mesmo cartão:**
+  - `frontend/src/lib/credit-cards.ts` e `credit-cards.test.ts`: adicionado `groupInvoiceByHolder()` para separar os lançamentos por portador dentro do mesmo cartão.
+  - `frontend/src/app/cartoes/page.tsx`: extraído `InvoiceTypeGroups`; adicionada visualização **Por portador** (padrão quando há >1 portador) com seções colapsáveis de Titular e Adicionais contendo internamente **Fixos / Parcelados / À vista**, toggle para **Por tipo** e quebra por portador no `StatCard` da fatura.
+  - `frontend/src/components/CardManager.tsx` e `CreateCardModal.tsx`: exibição dos portadores e acesso ao `CardHoldersModal` em Configurações, além de cadastro do `last4` do titular e cartões adicionais na criação do cartão.
+  - `backend/src/cash-flow/cash-flow.builder.ts`, `cash-flow.service.ts`, `cash-flow.builder.spec.ts`, `frontend/src/lib/cash-flow.ts` e `CashFlowSheet.tsx`: suporte a `subRows` expansíveis por portador na linha do cartão no Fluxo de Caixa mantendo o total consolidado.
+- **Edição de Gastos Fixos / Estimativas (`transactions`, `fluxo-de-caixa`):**
+  - `backend/src/transactions/dto/update-transaction.dto.ts`, `update-transaction-status.dto.ts`, `transactions.controller.ts`, `transactions.service.ts` e `transactions.service.spec.ts`: adicionado `PATCH /transactions/:id` (com `scope: 'single' | 'series'`), ajuste opcional de `amount` na liquidação (`PATCH /transactions/:id/status`) e deduplicação de projeções por série `(type, description)` respeitando overrides mensais sem duplicar ou encerrar a série futura.
+  - `frontend/src/components/TransactionModal.tsx`, `MonthTransactions.tsx`, `SettleTransactionDialog.tsx` e `app/fluxo-de-caixa/page.tsx`: adicionado modo de edição completo (com escolha entre alterar só o mês ou daqui para frente) e ajuste do valor real diretamente no diálogo de confirmação de pagamento/recebimento.
+- **Investimentos — Consolidação de ativos duplicados, histórico de aportes, separação de Ações/FIIs, Gestão de Proventos e Criptomoedas padrão Binance (`investimentos`, `investimentos/proventos`):**
+  - `backend/prisma/schema.prisma`, `backend/src/investments/investments.controller.ts` e `investments.service.ts`: adicionado `FII` ao enum `InvestmentType`, model `InvestmentDividend` e sincronização automática de proventos históricos e futuros programados via Yahoo Finance (`events=div`) e `brapi.dev` desde a `investmentDate` do aporte (`GET /investments/dividends`, `POST /investments/dividends/sync`). Cotações de criptomoedas consultam primariamente a API Spot da Binance (`1MBABYDOGEUSDT`, `1000SATSUSDT`, etc.) com fallback no CoinGecko, suportando custo em `US$` (Padrão Binance) ou `R$` e até 10 casas decimais.
+  - `frontend/src/lib/investments.ts`, `investments.test.ts`, `investments-dividends.ts` e `investments-dividends.test.ts`: consolidação de lotes por ativo (`consolidateInvestments`), separação de proventos pagos (`PAID`) vs. a receber (`PENDING`), matriz histórica anual × 12 meses (`buildAnnualMonthlyMatrix`) e funções `grossValueOf` / `taxAmountOf` / `currentValueOf`.
+  - `frontend/src/components/AppHeader.tsx`, `InvestmentsSubnav.tsx`, `frontend/src/app/investimentos/page.tsx` e `frontend/src/app/investimentos/proventos/page.tsx`: submenu em **Investimentos** (`Carteira` e `Proventos`), Patrimônio Total exibindo **Valor bruto** e **Valor líquido** lado a lado, seção de **Proventos a receber** e matriz de **Histórico mensal** com filtros (`Recebidos / A receber / Todos`, `Tipo de ativo`, `Ativos`).
+- **Contas em Dólar (`USD`), Patrimônio Bruto vs. Líquido e Saldo Projetado Consolidado:**
+  - `backend/src/accounts/accounts.service.ts`, `frontend/src/lib/accounts.ts`, `AccountManager.tsx` e `MoneyWhereCard.tsx`: suporte a contas em `USD` (`currency: "USD"`, `balanceUsd`, `investedBrl`, `purchaseExchangeRate`) com flutuação automática pelo `USD-BRL` atual; `MoneyWhereCard.tsx` exibe o valor bruto no topo, tooltip com detalhamento Bruto / Impostos / Líquido no canto superior direito e rodapé com subtração de impostos e valor líquido.
+  - `backend/src/cash-flow/cash-flow.service.ts` e `cash-flow.builder.ts`: `openingBalance` (`SALDO` inicial do mês atual na linha **Saldo projetado**) soma o valor bruto de todas as contas + cofrinhos + investimentos e subtrai as despesas pendentes em aberto do mês atual (`openNet`).
+
+
 

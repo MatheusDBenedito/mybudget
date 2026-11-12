@@ -4,6 +4,7 @@ import { Money } from "@/components/Money";
 
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { type CashFlowData, shortMonthLabel } from "@/lib/cash-flow";
+import { cn } from "@/lib/utils";
 
 const compact = (v: number) =>
     new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 }).format(v);
@@ -28,7 +29,7 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
     );
 }
 
-export function IncomeVsExpensesChart({ data }: { data: CashFlowData }) {
+export function IncomeVsExpensesChart({ data, className }: { data: CashFlowData; className?: string }) {
     const chartData = data.months.map((m, i) => ({
         label: shortMonthLabel(m),
         Recebimentos: data.summary.income[i],
@@ -37,7 +38,7 @@ export function IncomeVsExpensesChart({ data }: { data: CashFlowData }) {
     }));
 
     return (
-        <div className="h-[300px] w-full" role="img" aria-label="Gráfico de recebimentos e despesas nos próximos 12 meses, com o saldo projetado">
+        <div className={cn("h-full min-h-[180px] w-full flex-1", className)} role="img" aria-label="Gráfico de recebimentos e despesas nos próximos 12 meses, com o saldo projetado">
             <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={2}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e3e5e9" vertical={false} />

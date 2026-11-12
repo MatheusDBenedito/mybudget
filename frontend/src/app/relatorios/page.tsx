@@ -39,7 +39,7 @@ interface Transaction {
 type ApiInvestment = {
     id: string;
     name: string;
-    type: "FIXED_INCOME" | "VARIABLE_INCOME" | "CRYPTO" | "US_STOCK" | "OTHER";
+    type: "FIXED_INCOME" | "VARIABLE_INCOME" | "FII" | "CRYPTO" | "US_STOCK" | "OTHER";
     investedAmount: number;
     currentValue: number;
     currentPrice?: number;
@@ -149,7 +149,7 @@ export default function RelatoriosPage() {
     // Investment profit (net)
     const investmentProfit = investments.reduce((acc, inv) => {
         let netVal: number;
-        if (inv.type === "VARIABLE_INCOME" || inv.type === "CRYPTO") {
+        if (inv.type === "VARIABLE_INCOME" || inv.type === "FII" || inv.type === "CRYPTO") {
             netVal = (inv.currentPrice ?? 0) * (inv.quantity ?? 0);
         } else {
             netVal = inv.netValue ?? inv.currentValue;

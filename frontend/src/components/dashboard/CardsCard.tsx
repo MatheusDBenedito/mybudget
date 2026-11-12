@@ -25,7 +25,7 @@ const SHORT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "O
 const pad = (d: number) => String(d).padStart(2, "0");
 
 /** The favorite card's invoice for the month; the arrows switch which card is shown. */
-export function CardsCard({ cards, data, className }: { cards: DashCreditCard[]; data: CashFlowData | null; className?: string }) {
+export function CardsCard({ cards, data, height = 460, className }: { cards: DashCreditCard[]; data: CashFlowData | null; height?: number; className?: string }) {
     // Starts on the favorite (the list already comes with it first); arrows change the card being viewed
     const [index, setIndex] = useState(() => Math.max(cards.findIndex(c => c.isPrimary), 0));
     const current = Math.min(index, Math.max(cards.length - 1, 0));
@@ -45,12 +45,14 @@ export function CardsCard({ cards, data, className }: { cards: DashCreditCard[];
     const first = invoices[0];
     const invoice = first?.value ?? 0;
     const usage = card && card.limit > 0 ? Math.min((invoice / card.limit) * 100, 100) : 0;
+    const isCompact = height < 380;
+    const cardSize = isCompact ? "p-4" : undefined;
 
     return (
         <DashCard
             title="Meus cartões"
             subtitle={first ? `Fatura de ${MONTHS[first.month - 1]}` : undefined}
-            className={className}
+            className={cn(cardSize, className)}
             actions={cards.length > 1 ? (
                 <div className="flex gap-1">
                     <button type="button" onClick={() => setIndex(Math.max(current - 1, 0))} disabled={current === 0}
@@ -65,11 +67,11 @@ export function CardsCard({ cards, data, className }: { cards: DashCreditCard[];
             ) : undefined}
         >
             {card ? (
-                <>
-                    {/* Only one card at a time, in the user's chosen color */}
+                <div className="flex min-h-0 flex-1 flex-col justify-between gap-2 overflow-y-auto pr-0.5">
+                    {/* Fixed credit-card proportions: never stretches when the outer widget expands */}
                     <div
                         className={cn(
-                            "flex aspect-[1.65] w-full flex-col justify-between rounded-2xl bg-gradient-to-br p-4 text-white shadow-md",
+                            "mx-auto flex aspect-[1.65] w-full max-w-[300px] shrink-0 flex-col justify-between rounded-2xl bg-gradient-to-br p-4 text-white shadow-md",
                             card.color || "from-neutral-800 to-neutral-950",
                         )}
                         aria-label={`Cartão ${card.name}`}
@@ -97,31 +99,33 @@ export function CardsCard({ cards, data, className }: { cards: DashCreditCard[];
                         </span>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
-                        <div>
-                            <p className="text-xs text-muted-foreground">Total da fatura</p>
-                            <div className="flex items-center gap-2">
-                                <BigMoney value={invoice} size="md" />
-                                {invoices[0] && invoice > 0 && (
-                                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", invoices[0].open ? "bg-blue-100 text-blue-700" : "bg-positive-soft text-positive")}>
-                                        {invoices[0].open ? "Aberta" : "Paga"}
-                                    </span>
-                                )}
+                    <div>
+                        <div className="flex flex-wrap items-end justify-between gap-3">
+                            <div>
+                                <p className="text-xs text-muted-foreground">Total da fatura</p>
+                                <div className="flex items-center gap-2">
+                                    <BigMoney value={invoice} size="md" />
+                                    {invoices[0] && invoice > 0 && (
+                                        <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", invoices[0].open ? "bg-blue-100 text-blue-700" : "bg-positive-soft text-positive")}>
+                                            {invoices[0].open ? "Aberta" : "Paga"}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
+                            <Link href="/cartoes" className="inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-muted">Ver fatura</Link>
                         </div>
-                        <Link href="/cartoes" className="inline-flex h-8 items-center rounded-lg border px-3 text-xs font-medium hover:bg-muted">Ver fatura</Link>
+
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label="Uso do limite" aria-valuenow={Math.round(usage)} aria-valuemin={0} aria-valuemax={100}>
+                            <span className={cn("block h-full rounded-full", usage >= 90 ? "bg-negative-fill" : usage >= 70 ? "bg-amber-400" : "bg-positive-fill")} style={{ width: `${usage}%` }} />
+                        </div>
+                        <p className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+                            <span>Disponível <Money value={card.limit - invoice} /></span>
+                            <span>{usage.toFixed(0)}% do limite</span>
+                        </p>
                     </div>
 
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label="Uso do limite" aria-valuenow={Math.round(usage)} aria-valuemin={0} aria-valuemax={100}>
-                        <span className={cn("block h-full rounded-full", usage >= 90 ? "bg-negative-fill" : usage >= 70 ? "bg-amber-400" : "bg-positive-fill")} style={{ width: `${usage}%` }} />
-                    </div>
-                    <p className="mt-1 flex justify-between text-[11px] text-muted-foreground">
-                        <span>Disponível <Money value={card.limit - invoice} /></span>
-                        <span>{usage.toFixed(0)}% do limite</span>
-                    </p>
-
-                    {invoices.length > 0 && <NextInvoices invoices={invoices} />}
-                </>
+                    {invoices.length > 0 && <NextInvoices invoices={invoices} height={height} />}
+                </div>
             ) : (
                 <p className="py-10 text-center text-sm text-muted-foreground">Nenhum cartão cadastrado.</p>
             )}
@@ -129,13 +133,14 @@ export function CardsCard({ cards, data, className }: { cards: DashCreditCard[];
     );
 }
 
-function NextInvoices({ invoices }: { invoices: { year: number; month: number; value: number; open: boolean }[] }) {
+function NextInvoices({ invoices, height = 460 }: { invoices: { year: number; month: number; value: number; open: boolean }[]; height?: number }) {
     const max = Math.max(...invoices.map(i => i.value), 1);
     // Points of the dashed trend line, one per column (viewBox 0..300 × 0..60)
     const points = invoices.map((inv, i) => ({ x: 50 + i * 100, y: 50 - (inv.value / max) * 40 }));
+    const boxHeight = height < 380 ? "h-20" : height >= 540 ? "h-32" : "h-24";
 
     return (
-        <div className="mt-4">
+        <div>
             <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Próximas faturas</p>
             <div className="relative grid grid-cols-3 gap-2">
                 <svg className="pointer-events-none absolute inset-x-0 top-7 h-[60px] w-full" viewBox="0 0 300 60" preserveAspectRatio="none" aria-hidden>
@@ -143,7 +148,7 @@ function NextInvoices({ invoices }: { invoices: { year: number; month: number; v
                 </svg>
                 {invoices.map((inv, i) => (
                     <div key={`${inv.year}-${inv.month}`}
-                        className={cn("relative flex h-32 flex-col items-center justify-between overflow-hidden rounded-xl border p-2 text-center", i === 0 ? "border-blue-500 bg-blue-50/60" : "bg-muted/40")}>
+                        className={cn("relative flex flex-col items-center justify-between overflow-hidden rounded-xl border p-2 text-center", boxHeight, i === 0 ? "border-blue-500 bg-blue-50/60" : "bg-muted/40")}>
                         <span className="z-10 text-xs font-semibold">{SHORT[inv.month - 1]}{i > 0 ? ` ${String(inv.year).slice(2)}` : ""}</span>
                         {i === 0 && inv.value > 0 && (
                             <span className={cn("z-10 rounded-full px-1.5 text-[10px] font-medium", inv.open ? "bg-blue-100 text-blue-700" : "bg-positive-soft text-positive")}>

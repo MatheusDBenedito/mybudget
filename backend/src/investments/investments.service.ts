@@ -40,30 +40,55 @@ export class InvestmentsService {
     private b3CacheExpiry: number = 0;
     private readonly B3_CACHE_TTL_MS = 1000 * 60 * 20; // 20 minutes
 
-    // In-memory cache for Crypto prices (CoinGecko)
-    private cryptoPriceCache: Map<string, number> = new Map();
+    // In-memory cache for Crypto prices (Binance / CoinGecko) keyed by uppercase ticker
+    private cryptoPriceCache: Map<string, { brl: number; usd: number }> = new Map();
     private cryptoCacheExpiry: number = 0;
     private readonly CRYPTO_CACHE_TTL_MS = 1000 * 60 * 5; // 5 minutes
 
-    // Map common crypto symbols to CoinGecko IDs
-    private readonly COINGECKO_ID_MAP: Record<string, string> = {
-        'BTC': 'bitcoin',
-        'ETH': 'ethereum',
-        'USDT': 'tether',
-        'BNB': 'binancecoin',
-        'SOL': 'solana',
-        'XRP': 'ripple',
-        'USDC': 'usd-coin',
-        'ADA': 'cardano',
-        'AVAX': 'avalanche-2',
-        'DOGE': 'dogecoin',
-        'DOT': 'polkadot',
-        'MATIC': 'matic-network',
-        'WBTC': 'wrapped-bitcoin',
-        'SHIB': 'shiba-inu',
-        'LTC': 'litecoin',
-        'LINK': 'chainlink',
-        'BCH': 'bitcoin-cash',
+    // In-memory cache for historical dividend events per ticker
+    private dividendEventsCache: Map<string, { fetchedAt: number; events: Array<{ date: Date; amountPerShare: number }> }> = new Map();
+    private syncedInvestmentIds: Set<string> = new Set();
+    private readonly DIVIDEND_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
+
+    // Map common crypto symbols (including Binance 1M/1000 bundle tokens) to Binance USDT pairs
+    private readonly BINANCE_SYMBOL_MAP: Record<string, string> = {
+        'BABYDOGE': '1MBABYDOGEUSDT',
+        '1MBABYDOGE': '1MBABYDOGEUSDT',
+        'SATS': '1000SATSUSDT',
+        '1000SATS': '1000SATSUSDT',
+        '1000SHIB': '1000SHIBUSDT',
+        '1000PEPE': '1000PEPEUSDT',
+        '1000FLOKI': '1000FLOKIUSDT',
+        '1000BONK': '1000BONKUSDT',
+        'MATIC': 'POLUSDT',
+        'POL': 'POLUSDT',
+    };
+
+    // Map common crypto symbols to CoinGecko IDs and optional bundle multipliers
+    private readonly COINGECKO_ID_MAP: Record<string, { id: string; multiplier?: number }> = {
+        'BTC': { id: 'bitcoin' },
+        'ETH': { id: 'ethereum' },
+        'USDT': { id: 'tether' },
+        'BNB': { id: 'binancecoin' },
+        'SOL': { id: 'solana' },
+        'XRP': { id: 'ripple' },
+        'USDC': { id: 'usd-coin' },
+        'ADA': { id: 'cardano' },
+        'AVAX': { id: 'avalanche-2' },
+        'DOGE': { id: 'dogecoin' },
+        'DOT': { id: 'polkadot' },
+        'MATIC': { id: 'matic-network' },
+        'POL': { id: 'polygon-ecosystem-token' },
+        'WBTC': { id: 'wrapped-bitcoin' },
+        'SHIB': { id: 'shiba-inu' },
+        'LTC': { id: 'litecoin' },
+        'LINK': { id: 'chainlink' },
+        'BCH': { id: 'bitcoin-cash' },
+        'FET': { id: 'fetch-ai' },
+        'BABYDOGE': { id: 'baby-doge-coin', multiplier: 1_000_000 },
+        '1MBABYDOGE': { id: 'baby-doge-coin', multiplier: 1_000_000 },
+        'SATS': { id: 'sats-ordinals', multiplier: 1_000 },
+        '1000SATS': { id: 'sats-ordinals', multiplier: 1_000 },
     };
 
     // Fallback: fixed CDI for when BCB API is unavailable
@@ -76,6 +101,7 @@ export class InvestmentsService {
     async create(createInvestmentDto: CreateInvestmentDto) {
         const data: any = { ...createInvestmentDto };
         this.applyUsStockInvestedAmount(data);
+        this.applyCryptoInvestedAmount(data);
         if (!data.currentValue) {
             data.currentValue = data.investedAmount;
         }
@@ -85,9 +111,11 @@ export class InvestmentsService {
         } else {
             data.investmentDate = new Date(); // default to today if missing
         }
-        return this.prisma.investment.create({
+        const created = await this.prisma.investment.create({
             data,
         });
+        await this.syncDividendsForInvestment(created);
+        return created;
     }
 
     async findAll() {
@@ -95,17 +123,20 @@ export class InvestmentsService {
             orderBy: { createdAt: 'desc' },
         });
 
-        // Fetch live B3 prices for variable income investments
-        const variableInvs = investments.filter(i => i.type === 'VARIABLE_INCOME' && i.tickerCode);
+        // Fetch live B3 prices for variable income and FII investments
+        const variableInvs = investments.filter(
+            i => (i.type === 'VARIABLE_INCOME' || i.type === 'FII') && i.tickerCode,
+        );
         if (variableInvs.length > 0) {
             const tickers = [...new Set(variableInvs.map(i => i.tickerCode!).filter(Boolean))];
             await this.fetchB3Prices(tickers);
         }
 
-        // Fetch live Crypto prices
+        // Fetch live Crypto prices and USD rate
         const cryptoInvs = investments.filter(i => i.type === 'CRYPTO' && i.tickerCode);
         if (cryptoInvs.length > 0) {
             const tickers = [...new Set(cryptoInvs.map(i => i.tickerCode!).filter(Boolean))];
+            await this.fetchUsdRate();
             await this.fetchCryptoPrices(tickers);
         }
 
@@ -134,9 +165,10 @@ export class InvestmentsService {
         if (!investment) {
             throw new NotFoundException(`Investment with ID ${id} not found`);
         }
-        if (investment.type === 'VARIABLE_INCOME' && investment.tickerCode) {
+        if ((investment.type === 'VARIABLE_INCOME' || investment.type === 'FII') && investment.tickerCode) {
             await this.fetchB3Prices([investment.tickerCode]);
         } else if (investment.type === 'CRYPTO' && investment.tickerCode) {
+            await this.fetchUsdRate();
             await this.fetchCryptoPrices([investment.tickerCode]);
         } else if (investment.type === 'US_STOCK' && investment.tickerCode) {
             await Promise.all([this.fetchUsPrices([investment.tickerCode]), this.fetchUsdRate()]);
@@ -156,18 +188,21 @@ export class InvestmentsService {
         }
         // Partial updates must still recompute the BRL cost from the merged values
         this.applyUsStockInvestedAmount(data, existing);
+        this.applyCryptoInvestedAmount(data, existing);
 
         const updated = await this.prisma.investment.update({
             where: { id },
             data,
         });
-        if (updated.type === 'VARIABLE_INCOME' && updated.tickerCode) {
+        if ((updated.type === 'VARIABLE_INCOME' || updated.type === 'FII') && updated.tickerCode) {
             await this.fetchB3Prices([updated.tickerCode]);
         } else if (updated.type === 'CRYPTO' && updated.tickerCode) {
+            await this.fetchUsdRate();
             await this.fetchCryptoPrices([updated.tickerCode]);
         } else if (updated.type === 'US_STOCK' && updated.tickerCode) {
             await Promise.all([this.fetchUsPrices([updated.tickerCode]), this.fetchUsdRate()]);
         }
+        await this.syncDividendsForInvestment(updated);
         return this.enrichInvestment(updated);
     }
 
@@ -187,6 +222,35 @@ export class InvestmentsService {
         const rate = data.purchaseExchangeRate ?? existing?.purchaseExchangeRate;
         if (avg != null && qty != null && rate != null) {
             data.investedAmount = avg * qty * rate;
+            if (data.currentValue == null || !existing) {
+                data.currentValue = data.investedAmount;
+            }
+        }
+    }
+
+    /**
+     * For Crypto: supports either BRL cost price (purchaseExchangeRate null/0)
+     * or USD/Binance cost price (purchaseExchangeRate > 0).
+     */
+    private applyCryptoInvestedAmount(data: any, existing?: Investment): void {
+        const type = data.type ?? existing?.type;
+        if (type !== 'CRYPTO') return;
+
+        if (data.tickerCode) {
+            data.tickerCode = String(data.tickerCode).trim().toUpperCase();
+        }
+
+        const avg = data.averagePrice ?? existing?.averagePrice;
+        const qty = data.quantity ?? existing?.quantity;
+        const rawRate = data.purchaseExchangeRate !== undefined ? data.purchaseExchangeRate : existing?.purchaseExchangeRate;
+        const rate = rawRate && rawRate > 0 ? rawRate : null;
+
+        if (data.purchaseExchangeRate !== undefined && (!data.purchaseExchangeRate || data.purchaseExchangeRate <= 0)) {
+            data.purchaseExchangeRate = null;
+        }
+
+        if (avg != null && qty != null) {
+            data.investedAmount = rate ? avg * qty * rate : avg * qty;
             if (data.currentValue == null || !existing) {
                 data.currentValue = data.investedAmount;
             }
@@ -372,46 +436,86 @@ export class InvestmentsService {
     }
 
     /**
-     * Fetches current cryptocurrency prices from CoinGecko API with 5-min cache.
+     * Fetches current cryptocurrency prices from Binance API (primary) and CoinGecko API (fallback) with 5-min cache.
      */
     private async fetchCryptoPrices(tickers: string[]): Promise<void> {
-        // Map tickers to CoinGecko IDs
-        const idsToFetch = [...new Set(tickers.map(ticker => {
-            const upperTicker = ticker.toUpperCase();
-            return this.COINGECKO_ID_MAP[upperTicker] || ticker.toLowerCase();
-        }))];
+        const normalizedTickers = [...new Set(tickers.map(t => t.trim().toUpperCase()).filter(Boolean))];
+        if (normalizedTickers.length === 0) return;
 
         // Check cache
+        let missing = normalizedTickers;
         if (this.cryptoPriceCache.size > 0 && Date.now() < this.cryptoCacheExpiry) {
-            const missing = idsToFetch.filter(id => !this.cryptoPriceCache.has(id));
+            missing = normalizedTickers.filter(t => !this.cryptoPriceCache.has(t));
             if (missing.length === 0) return;
         }
 
-        // CoinGecko allows multiple IDs comma-separated
-        const idsStr = idsToFetch.join(',');
-        const url = `https://api.coingecko.com/api/v3/simple/price?ids=${idsStr}&vs_currencies=brl`;
+        const usdRate = this.usdRate ?? 5.64;
 
-        try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                this.logger.warn(`CoinGecko returned ${response.status}`);
+        // 1. Try Binance first for exact Spot USDT prices (e.g. 1MBABYDOGEUSDT, 1000SATSUSDT, BNBUSDT, SOLUSDT)
+        const remainingForCoinGecko: string[] = [];
+        await Promise.allSettled(missing.map(async (ticker) => {
+            if (ticker === 'USDT' || ticker === 'USDC') {
+                this.cryptoPriceCache.set(ticker, { usd: 1, brl: usdRate });
                 return;
             }
-
-            const data = await response.json();
-
-            // data format: { "bitcoin": { "brl": 300000 }, "ethereum": { "brl": 15000 } }
-            for (const id in data) {
-                if (data[id] && data[id].brl != null) {
-                    this.cryptoPriceCache.set(id, data[id].brl);
-                }
+            // For MATIC, CoinGecko tracks the legacy MATIC price accurately while Binance migrated to POL
+            if (ticker === 'MATIC') {
+                remainingForCoinGecko.push(ticker);
+                return;
             }
+            const binanceSymbol = this.BINANCE_SYMBOL_MAP[ticker] || `${ticker}USDT`;
+            try {
+                const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(binanceSymbol)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const usdPrice = Number(data?.price);
+                    if (usdPrice > 0) {
+                        this.cryptoPriceCache.set(ticker, {
+                            usd: usdPrice,
+                            brl: usdPrice * usdRate,
+                        });
+                        return;
+                    }
+                }
+            } catch {
+                // fallback to CoinGecko
+            }
+            remainingForCoinGecko.push(ticker);
+        }));
 
-            this.cryptoCacheExpiry = Date.now() + this.CRYPTO_CACHE_TTL_MS;
-            this.logger.log(`Fetched Crypto prices for: ${idsStr}`);
-        } catch (error) {
-            this.logger.warn(`Failed to fetch Crypto prices: ${error.message}`);
+        // 2. Fallback to CoinGecko for any ticker not resolved via Binance
+        if (remainingForCoinGecko.length > 0) {
+            const idsToFetch = [...new Set(remainingForCoinGecko.map(ticker => {
+                return this.COINGECKO_ID_MAP[ticker]?.id || ticker.toLowerCase();
+            }))];
+            const idsStr = idsToFetch.join(',');
+            const url = `https://api.coingecko.com/api/v3/simple/price?ids=${idsStr}&vs_currencies=brl,usd`;
+
+            try {
+                const response = await fetch(url);
+                if (response.ok) {
+                    const data = await response.json();
+                    for (const ticker of remainingForCoinGecko) {
+                        const mapping = this.COINGECKO_ID_MAP[ticker];
+                        const cgId = mapping?.id || ticker.toLowerCase();
+                        const multiplier = mapping?.multiplier ?? 1;
+                        const entry = data?.[cgId];
+                        if (entry && (entry.brl != null || entry.usd != null)) {
+                            const usd = entry.usd != null ? Number(entry.usd) * multiplier : (Number(entry.brl) * multiplier) / usdRate;
+                            const brl = entry.brl != null ? Number(entry.brl) * multiplier : usd * usdRate;
+                            this.cryptoPriceCache.set(ticker, { brl, usd });
+                        }
+                    }
+                } else {
+                    this.logger.warn(`CoinGecko returned ${response.status}`);
+                }
+            } catch (error) {
+                this.logger.warn(`Failed to fetch Crypto prices from CoinGecko: ${error.message}`);
+            }
         }
+
+        this.cryptoCacheExpiry = Date.now() + this.CRYPTO_CACHE_TTL_MS;
+        this.logger.log(`Fetched Crypto prices for: ${normalizedTickers.join(',')}`);
     }
 
     /**
@@ -506,8 +610,8 @@ export class InvestmentsService {
      * - VARIABLE_INCOME: live B3 price
      */
     private async enrichInvestment(inv: Investment): Promise<any> {
-        // Variable income: enrich with live B3 price
-        if (inv.type === 'VARIABLE_INCOME' && inv.tickerCode) {
+        // Variable income & FII: enrich with live B3 price
+        if ((inv.type === 'VARIABLE_INCOME' || inv.type === 'FII') && inv.tickerCode) {
             const livePrice = this.b3PriceCache.get(inv.tickerCode.toUpperCase());
             if (livePrice != null) {
                 return {
@@ -519,17 +623,46 @@ export class InvestmentsService {
             return inv;
         }
 
-        // Crypto: enrich with live CoinGecko price
+        // Crypto: enrich with live Binance / CoinGecko price
         if (inv.type === 'CRYPTO' && inv.tickerCode) {
-            const upperTicker = inv.tickerCode.toUpperCase();
-            const cgId = this.COINGECKO_ID_MAP[upperTicker] || inv.tickerCode.toLowerCase();
-            const livePrice = this.cryptoPriceCache.get(cgId);
+            const upperTicker = inv.tickerCode.trim().toUpperCase();
+            const livePrice = this.cryptoPriceCache.get(upperTicker);
+            const qty = inv.quantity ?? 0;
+            const isUsdCost = inv.purchaseExchangeRate != null && inv.purchaseExchangeRate > 0;
+            const currentRate = this.usdRate ?? inv.purchaseExchangeRate ?? 5.64;
+
+            if (isUsdCost) {
+                const avgUsd = inv.averagePrice ?? 0;
+                const curUsd = livePrice?.usd ?? (inv.currentPrice ? inv.currentPrice / currentRate : avgUsd);
+                const avgBrl = avgUsd * currentRate;
+                const curBrl = livePrice?.brl ?? (curUsd * currentRate);
+                const investedUsd = avgUsd * qty;
+                const currentValueUsd = curUsd * qty;
+                const investedBrl = avgBrl * qty;
+                const currentValueBrl = curBrl * qty;
+
+                return {
+                    ...inv,
+                    averagePrice: avgBrl,
+                    currentPrice: curBrl,
+                    averagePriceUsd: avgUsd,
+                    currentPriceUsd: curUsd,
+                    investedUsd,
+                    currentValueUsd,
+                    investedAmount: investedBrl,
+                    currentValue: currentValueBrl,
+                    currentExchangeRate: currentRate,
+                };
+            }
 
             if (livePrice != null) {
                 return {
                     ...inv,
-                    currentPrice: livePrice,
-                    currentValue: livePrice * (inv.quantity ?? 0),
+                    currentPrice: livePrice.brl,
+                    currentPriceUsd: livePrice.usd,
+                    currentValue: livePrice.brl * qty,
+                    currentValueUsd: livePrice.usd * qty,
+                    currentExchangeRate: currentRate,
                 };
             }
             return inv;
@@ -625,5 +758,171 @@ export class InvestmentsService {
             netValue,
             irTaxRate: irTaxRate * 100
         };
+    }
+
+    private isDividendEligible(inv: Investment): boolean {
+        return (
+            (inv.type === 'VARIABLE_INCOME' || inv.type === 'FII' || inv.type === 'US_STOCK') &&
+            Boolean(inv.tickerCode?.trim()) &&
+            Number(inv.quantity) > 0
+        );
+    }
+
+    async findAllDividends() {
+        const investments = await this.prisma.investment.findMany({
+            orderBy: { investmentDate: 'asc' },
+        });
+
+        const eligible = investments.filter(i => this.isDividendEligible(i));
+        const unsynced = eligible.filter(i => !this.syncedInvestmentIds.has(i.id));
+        if (unsynced.length > 0) {
+            await this.syncAllDividends(false);
+        }
+
+        const dividends = await this.prisma.investmentDividend.findMany({
+            include: {
+                investment: {
+                    select: {
+                        id: true,
+                        name: true,
+                        type: true,
+                        tickerCode: true,
+                        sector: true,
+                        investmentDate: true,
+                        quantity: true,
+                        investedAmount: true,
+                    },
+                },
+            },
+            orderBy: { date: 'asc' },
+        });
+
+        return {
+            dividends,
+            investments: eligible.map(inv => ({
+                id: inv.id,
+                name: inv.name,
+                type: inv.type,
+                tickerCode: inv.tickerCode,
+                sector: inv.sector,
+                investmentDate: inv.investmentDate,
+                quantity: inv.quantity,
+                investedAmount: inv.investedAmount,
+            })),
+        };
+    }
+
+    async syncAllDividends(force = false) {
+        if (force) {
+            this.dividendEventsCache.clear();
+            this.syncedInvestmentIds.clear();
+        }
+
+        const investments = await this.prisma.investment.findMany();
+        const eligible = investments.filter(i => this.isDividendEligible(i));
+
+        if (eligible.some(i => i.type === 'US_STOCK')) {
+            await this.fetchUsdRate();
+        }
+
+        for (const inv of eligible) {
+            await this.syncDividendsForInvestment(inv);
+        }
+
+        return this.findAllDividends();
+    }
+
+    async syncDividendsForInvestment(inv: Investment): Promise<void> {
+        if (!this.isDividendEligible(inv)) {
+            await this.prisma.investmentDividend.deleteMany({ where: { investmentId: inv.id } });
+            return;
+        }
+
+        const ticker = inv.tickerCode!.trim().toUpperCase();
+        if (inv.type === 'US_STOCK') {
+            await this.fetchUsdRate();
+        }
+
+        const events = await this.fetchTickerDividendEvents(inv.type, ticker);
+        const purchaseDate = inv.investmentDate ? new Date(inv.investmentDate) : new Date(inv.createdAt);
+        const purchaseStart = new Date(Date.UTC(
+            purchaseDate.getUTCFullYear(),
+            purchaseDate.getUTCMonth(),
+            purchaseDate.getUTCDate(),
+            0, 0, 0,
+        ));
+        const now = new Date();
+        const qty = Number(inv.quantity ?? 0);
+        const isUs = inv.type === 'US_STOCK';
+        const fxRate = isUs ? (this.usdRate ?? inv.purchaseExchangeRate ?? 5.6) : 1;
+
+        const matchingRows = events
+            .filter(ev => ev.date >= purchaseStart && ev.date <= now && ev.amountPerShare > 0)
+            .map(ev => {
+                const amountPerShare = Number(ev.amountPerShare.toFixed(6));
+                const totalOriginal = Number((amountPerShare * qty).toFixed(2));
+                const totalBrl = Number((totalOriginal * fxRate).toFixed(2));
+                return {
+                    investmentId: inv.id,
+                    tickerCode: ticker,
+                    date: ev.date,
+                    amountPerShare,
+                    quantity: qty,
+                    totalOriginal,
+                    currency: isUs ? 'USD' : 'BRL',
+                    totalBrl,
+                };
+            });
+
+        await this.prisma.$transaction([
+            this.prisma.investmentDividend.deleteMany({ where: { investmentId: inv.id } }),
+            ...(matchingRows.length > 0
+                ? [this.prisma.investmentDividend.createMany({ data: matchingRows, skipDuplicates: true })]
+                : []),
+        ]);
+
+        this.syncedInvestmentIds.add(inv.id);
+    }
+
+    private async fetchTickerDividendEvents(
+        type: Investment['type'],
+        ticker: string,
+    ): Promise<Array<{ date: Date; amountPerShare: number }>> {
+        const cacheKey = `${type}:${ticker}`;
+        const cached = this.dividendEventsCache.get(cacheKey);
+        if (cached && Date.now() - cached.fetchedAt < this.DIVIDEND_CACHE_TTL_MS) {
+            return cached.events;
+        }
+
+        const yahooSymbol = type === 'US_STOCK'
+            ? encodeURIComponent(ticker.replace('.', '-'))
+            : encodeURIComponent(`${ticker}.SA`);
+
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=10y&events=div`;
+
+        try {
+            const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            if (response.ok) {
+                const data = await response.json();
+                const rawDividends = data?.chart?.result?.[0]?.events?.dividends;
+                if (rawDividends && typeof rawDividends === 'object') {
+                    const events = Object.values(rawDividends as Record<string, { amount?: number; date?: number }>)
+                        .filter(d => typeof d?.amount === 'number' && d.amount > 0 && typeof d?.date === 'number')
+                        .map(d => ({
+                            date: new Date(d.date! * 1000),
+                            amountPerShare: Number(d.amount),
+                        }))
+                        .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+                    this.dividendEventsCache.set(cacheKey, { fetchedAt: Date.now(), events });
+                    return events;
+                }
+            }
+        } catch (error: any) {
+            this.logger.warn(`Failed to fetch Yahoo dividends for ${ticker}: ${error?.message}`);
+        }
+
+        this.dividendEventsCache.set(cacheKey, { fetchedAt: Date.now(), events: [] });
+        return [];
     }
 }

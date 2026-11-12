@@ -12,13 +12,18 @@ export const DASHBOARD_BLOCK_IDS = [
 
 export type DashboardBlockId = (typeof DASHBOARD_BLOCK_IDS)[number];
 
-export const DASHBOARD_WIDTHS = [4, 6, 8, 12] as const;
+export const MIN_DASHBOARD_WIDTH_PCT = 20;
+export const MAX_DASHBOARD_WIDTH_PCT = 100;
 
-export type DashboardWidth = (typeof DASHBOARD_WIDTHS)[number];
+export const MIN_DASHBOARD_HEIGHT_PX = 260;
+export const MAX_DASHBOARD_HEIGHT_PX = 760;
+export const DEFAULT_DASHBOARD_HEIGHT_PX = 460;
 
 export type DashboardLayoutItem = {
     id: DashboardBlockId;
-    width: DashboardWidth;
+    /** Width percentage (20..100). 33 and 67 render as exact thirds (33.3333% / 66.6667%). */
+    width: number;
+    height: number;
 };
 
 export const DASHBOARD_BLOCK_TITLES: Record<DashboardBlockId, string> = {
@@ -31,33 +36,63 @@ export const DASHBOARD_BLOCK_TITLES: Record<DashboardBlockId, string> = {
     "investments-chart": "Investimentos",
 };
 
-export const DASHBOARD_WIDTH_LABELS: Record<DashboardWidth, string> = {
-    4: "1/3",
-    6: "1/2",
-    8: "2/3",
-    12: "100%",
-};
-
 export const DEFAULT_LAYOUT: DashboardLayoutItem[] = [
-    { id: "forecast", width: 8 },
-    { id: "bills", width: 4 },
-    { id: "moneywhere", width: 4 },
-    { id: "cards", width: 4 },
-    { id: "spending", width: 4 },
-    { id: "cashflow-chart", width: 8 },
-    { id: "investments-chart", width: 4 },
+    { id: "forecast", width: 67, height: DEFAULT_DASHBOARD_HEIGHT_PX },
+    { id: "bills", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
+    { id: "moneywhere", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
+    { id: "cards", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
+    { id: "spending", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
+    { id: "cashflow-chart", width: 67, height: DEFAULT_DASHBOARD_HEIGHT_PX },
+    { id: "investments-chart", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
 ];
 
 export const DASHBOARD_LAYOUT_CACHE_KEY = "mybudget:dashboard-layout:v1";
 
+const LEGACY_HEIGHT_MAP: Record<string, number> = {
+    sm: 340,
+    md: 460,
+    lg: 580,
+};
+
 const isBlockId = (value: unknown): value is DashboardBlockId =>
     typeof value === "string" && (DASHBOARD_BLOCK_IDS as readonly string[]).includes(value);
 
-const isWidth = (value: unknown): value is DashboardWidth =>
-    typeof value === "number" && (DASHBOARD_WIDTHS as readonly number[]).includes(value);
+export const clampWidthPct = (value: number): number =>
+    Math.max(MIN_DASHBOARD_WIDTH_PCT, Math.min(MAX_DASHBOARD_WIDTH_PCT, Math.round(value)));
 
-const defaultWidthOf = (id: DashboardBlockId): DashboardWidth =>
-    DEFAULT_LAYOUT.find(item => item.id === id)?.width ?? 4;
+export const clampHeightPx = (value: number): number =>
+    Math.max(MIN_DASHBOARD_HEIGHT_PX, Math.min(MAX_DASHBOARD_HEIGHT_PX, Math.round(value)));
+
+export const widthCssPercent = (width: number): string => {
+    const clamped = clampWidthPct(width);
+    if (clamped === 33) return "33.33%";
+    if (clamped === 67) return "66.66%";
+    return `${clamped}%`;
+};
+
+const defaultWidthOf = (id: DashboardBlockId): number =>
+    DEFAULT_LAYOUT.find(item => item.id === id)?.width ?? 33;
+
+const defaultHeightOf = (id: DashboardBlockId): number =>
+    DEFAULT_LAYOUT.find(item => item.id === id)?.height ?? DEFAULT_DASHBOARD_HEIGHT_PX;
+
+const parseWidth = (value: unknown, fallback: number): number => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+    // Migrate legacy 12-column values (3..12) to percentage widths
+    if (value >= 3 && value <= 12) {
+        return clampWidthPct(Math.round((value / 12) * 100));
+    }
+    if (value < MIN_DASHBOARD_WIDTH_PCT || value > MAX_DASHBOARD_WIDTH_PCT) return fallback;
+    return Math.round(value);
+};
+
+const parseHeight = (value: unknown, fallback: number): number => {
+    if (typeof value === "string" && value in LEGACY_HEIGHT_MAP) {
+        return LEGACY_HEIGHT_MAP[value];
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+    return clampHeightPx(value);
+};
 
 /**
  * Keeps the saved order, drops unknown/duplicated blocks and appends missing ones
@@ -70,12 +105,13 @@ export function normalizeLayout(value: unknown): DashboardLayoutItem[] {
 
     for (const raw of rawItems) {
         if (!raw || typeof raw !== "object") continue;
-        const candidate = raw as { id?: unknown; width?: unknown };
+        const candidate = raw as { id?: unknown; width?: unknown; height?: unknown };
         if (!isBlockId(candidate.id) || seen.has(candidate.id)) continue;
         seen.add(candidate.id);
         items.push({
             id: candidate.id,
-            width: isWidth(candidate.width) ? candidate.width : defaultWidthOf(candidate.id),
+            width: parseWidth(candidate.width, defaultWidthOf(candidate.id)),
+            height: parseHeight(candidate.height, defaultHeightOf(candidate.id)),
         });
     }
 
@@ -102,27 +138,20 @@ export function moveTo(
     return next;
 }
 
-/** Moves a block one position left (-1) or right (+1) (arrow buttons). */
-export function moveBy(
+/** Updates the width (20..100%) and/or height (px) of a single block, clamping to bounds. */
+export function setBlockSize(
     layout: DashboardLayoutItem[],
     id: DashboardBlockId,
-    direction: -1 | 1,
+    size: { width?: number; height?: number },
 ): DashboardLayoutItem[] {
-    const from = layout.findIndex(item => item.id === id);
-    const to = from + direction;
-    if (from < 0 || to < 0 || to >= layout.length) return layout;
-
-    const next = [...layout];
-    [next[from], next[to]] = [next[to], next[from]];
-    return next;
-}
-
-export function setWidth(
-    layout: DashboardLayoutItem[],
-    id: DashboardBlockId,
-    width: DashboardWidth,
-): DashboardLayoutItem[] {
-    return layout.map(item => (item.id === id ? { ...item, width } : item));
+    return layout.map(item => {
+        if (item.id !== id) return item;
+        return {
+            ...item,
+            width: size.width !== undefined ? clampWidthPct(size.width) : item.width,
+            height: size.height !== undefined ? clampHeightPx(size.height) : item.height,
+        };
+    });
 }
 
 export function readCachedLayout(storage?: Storage): DashboardLayoutItem[] | null {

@@ -1,6 +1,6 @@
 import { Money } from "@/components/Money";
 import { useState, useEffect } from "react";
-import { PlusCircle, Building2, Pencil, Trash2, ArrowLeftRight, ArrowRight, Undo2 } from "lucide-react";
+import { PlusCircle, Building2, Pencil, Trash2, ArrowLeftRight, ArrowRight, Undo2, DollarSign } from "lucide-react";
 import { TransferDialog } from "@/components/TransferDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,7 +22,16 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CurrencyInput } from "@/components/ui/currency-input";
-import { type AccountType, ACCOUNT_TYPE_LABELS, isYielding, yieldLabel } from "@/lib/accounts";
+import {
+    type AccountType,
+    type AccountCurrency,
+    ACCOUNT_TYPE_LABELS,
+    ACCOUNT_CURRENCY_LABELS,
+    isYielding,
+    isUsdAccount,
+    computeUsdAccountMetrics,
+    yieldLabel,
+} from "@/lib/accounts";
 import { type ApiPot, YieldPots } from "@/components/YieldPots";
 
 const formatBRL = (value: number) => {
@@ -32,10 +41,33 @@ const formatBRL = (value: number) => {
     }).format(value);
 };
 
+const formatUSD = (value: number) => {
+    return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "USD",
+    }).format(value);
+};
+
+const formatRate = (value: number) => {
+    return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 4,
+    }).format(value);
+};
+
 type ApiAccount = {
     id: string;
     name: string;
     balance: number;
+    currency?: AccountCurrency;
+    balanceUsd?: number | null;
+    investedBrl?: number | null;
+    purchaseExchangeRate?: number | null;
+    currentExchangeRate?: number | null;
+    variationBrl?: number;
+    variationPct?: number;
     type: AccountType;
     cdiPercentage: number | null;
     /** Net yield credited this month (yielding accounts) */
@@ -48,12 +80,28 @@ type ApiAccount = {
 
 const accountSchema = z.object({
     name: z.string().trim().min(2, "Nome da conta deve ter pelo menos 2 caracteres."),
+    currency: z.enum(["BRL", "USD"]),
     balance: z.number({ message: "Insira um valor numérico válido." }),
+    balanceUsd: z.number().optional(),
+    investedBrl: z.number().optional(),
+    purchaseExchangeRate: z.number().optional(),
     type: z.enum(["CHECKING", "YIELDING"]),
     cdiPercentage: z.number().optional(),
 }).superRefine((data, ctx) => {
-    if (data.type === "YIELDING" && !(data.cdiPercentage && data.cdiPercentage > 0)) {
+    if (data.currency === "BRL" && data.type === "YIELDING" && !(data.cdiPercentage && data.cdiPercentage > 0)) {
         ctx.addIssue({ code: "custom", message: "Informe quanto a conta rende (% do CDI).", path: ["cdiPercentage"] });
+    }
+    if (data.currency === "USD") {
+        if (data.balanceUsd === undefined || data.balanceUsd < 0) {
+            ctx.addIssue({ code: "custom", message: "Informe o saldo em dólar (US$).", path: ["balanceUsd"] });
+        }
+        if ((data.balanceUsd ?? 0) > 0 && !(data.investedBrl && data.investedBrl > 0) && !(data.purchaseExchangeRate && data.purchaseExchangeRate > 0)) {
+            ctx.addIssue({
+                code: "custom",
+                message: "Informe quanto foi gasto em Reais (R$) ou a cotação do dólar no momento da compra.",
+                path: ["investedBrl"],
+            });
+        }
     }
 });
 
@@ -104,12 +152,20 @@ export function AccountManager() {
         resolver: zodResolver(accountSchema),
         defaultValues: {
             name: "",
+            currency: "BRL",
             balance: 0,
+            balanceUsd: undefined,
+            investedBrl: undefined,
+            purchaseExchangeRate: undefined,
             type: "CHECKING",
             cdiPercentage: undefined,
         },
     });
     const watchType = form.watch("type");
+    const watchCurrency = form.watch("currency");
+    const watchBalanceUsd = form.watch("balanceUsd");
+    const watchInvestedBrl = form.watch("investedBrl");
+    const watchPurchaseRate = form.watch("purchaseExchangeRate");
 
     const fetchAccounts = async (silent = false) => {
         if (!silent) setIsLoading(true);
@@ -136,7 +192,16 @@ export function AccountManager() {
 
     const openCreateDialog = () => {
         setEditingAccount(null);
-        form.reset({ name: "", balance: 0, type: "CHECKING", cdiPercentage: undefined });
+        form.reset({
+            name: "",
+            currency: "BRL",
+            balance: 0,
+            balanceUsd: undefined,
+            investedBrl: undefined,
+            purchaseExchangeRate: undefined,
+            type: "CHECKING",
+            cdiPercentage: undefined,
+        });
         setIsDialogOpen(true);
     };
 
@@ -144,7 +209,11 @@ export function AccountManager() {
         setEditingAccount(account);
         form.reset({
             name: account.name.trim(),
+            currency: account.currency ?? "BRL",
             balance: account.balance,
+            balanceUsd: account.balanceUsd ?? undefined,
+            investedBrl: account.investedBrl ?? undefined,
+            purchaseExchangeRate: account.purchaseExchangeRate ?? undefined,
             type: account.type ?? "CHECKING",
             cdiPercentage: account.cdiPercentage ?? undefined,
         });
@@ -160,13 +229,32 @@ export function AccountManager() {
 
             const method = editingAccount ? "PATCH" : "POST";
 
+            const isUsd = data.currency === "USD";
+            const payload = isUsd
+                ? {
+                    name: data.name,
+                    currency: "USD",
+                    balanceUsd: data.balanceUsd ?? 0,
+                    investedBrl: data.investedBrl ?? null,
+                    purchaseExchangeRate: data.purchaseExchangeRate ?? null,
+                    type: "CHECKING",
+                    cdiPercentage: null,
+                }
+                : {
+                    name: data.name,
+                    currency: "BRL",
+                    balance: data.balance,
+                    balanceUsd: null,
+                    investedBrl: null,
+                    purchaseExchangeRate: null,
+                    type: data.type,
+                    cdiPercentage: data.type === "YIELDING" ? data.cdiPercentage : null,
+                };
+
             const res = await fetch(url, {
                 method,
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    ...data,
-                    cdiPercentage: data.type === "YIELDING" ? data.cdiPercentage : null,
-                }),
+                body: JSON.stringify(payload),
             });
 
             if (res.ok) {
@@ -207,7 +295,7 @@ export function AccountManager() {
                     toast.error(`Erro: ${err.message}`);
                 }
             }
-        } catch (error) {
+        } catch {
             toast.error("Erro de conexão.");
         } finally {
             setAccountToDelete(null);
@@ -219,7 +307,7 @@ export function AccountManager() {
             <div className="flex items-center justify-between">
                 <div>
                     <h3 className="text-lg font-medium text-gray-900">Suas Contas</h3>
-                    <p className="text-sm text-gray-500">Cadastre suas contas correntes ou carteiras físicas.</p>
+                    <p className="text-sm text-gray-500">Cadastre suas contas correntes, remuneradas ou contas em dólar.</p>
                 </div>
 
                 <div className="flex gap-2">
@@ -247,40 +335,20 @@ export function AccountManager() {
                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
                             <div className="space-y-2">
                                 <Label htmlFor="name">Nome da Instituição/Conta</Label>
-                                <Input id="name" placeholder="Ex: Nubank, Carteira..." {...form.register("name")} />
+                                <Input id="name" placeholder="Ex: Nubank, Nomad, Avenue, Carteira..." {...form.register("name")} />
                                 {form.formState.errors.name && (
                                     <p className="text-xs text-red-500">{form.formState.errors.name.message}</p>
                                 )}
                             </div>
 
-                            <div className="space-y-2">
-                                <Label htmlFor="balance">Saldo Atual / Inicial</Label>
-                                <Controller
-                                    control={form.control}
-                                    name="balance"
-                                    render={({ field }) => (
-                                        <CurrencyInput
-                                            id="balance"
-                                            placeholder="R$ 0,00"
-                                            value={field.value ?? ""}
-                                            onChange={(val) => field.onChange(val ?? 0)}
-                                        />
-                                    )}
-                                />
-                                {form.formState.errors.balance && (
-                                    <p className="text-xs text-red-500">{form.formState.errors.balance.message}</p>
-                                )}
-                                <p className="text-xs text-gray-500">Você pode ajustar o saldo inicial para bater com sua conta de banco real.</p>
-                            </div>
-
                             <fieldset className="space-y-2">
-                                <legend className="mb-2 text-sm font-medium">Tipo de conta</legend>
+                                <legend className="mb-2 text-sm font-medium">Moeda da conta</legend>
                                 <Controller
                                     control={form.control}
-                                    name="type"
+                                    name="currency"
                                     render={({ field }) => (
                                         <div className="grid grid-cols-2 gap-2">
-                                            {(["CHECKING", "YIELDING"] as const).map(option => (
+                                            {(["BRL", "USD"] as const).map(option => (
                                                 <label
                                                     key={option}
                                                     className={`flex cursor-pointer flex-col gap-0.5 rounded-lg border p-3 text-sm transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring ${field.value === option ? "border-foreground bg-muted/50" : "hover:bg-muted/40"}`}
@@ -288,16 +356,18 @@ export function AccountManager() {
                                                     <span className="flex items-center gap-2 font-medium">
                                                         <input
                                                             type="radio"
-                                                            name="account-type"
+                                                            name="account-currency"
                                                             value={option}
                                                             checked={field.value === option}
                                                             onChange={() => field.onChange(option)}
                                                             className="h-4 w-4 accent-foreground"
                                                         />
-                                                        {ACCOUNT_TYPE_LABELS[option]}
+                                                        {ACCOUNT_CURRENCY_LABELS[option]}
                                                     </span>
                                                     <span className="pl-6 text-xs text-muted-foreground">
-                                                        {option === "CHECKING" ? "Não rende. Usada primeiro nos pagamentos." : "Rende um % do CDI (ex: Mercado Pago)."}
+                                                        {option === "BRL"
+                                                            ? "Saldo nacional em Reais (R$)."
+                                                            : "Flutua com o dólar hoje + histórico da compra."}
                                                     </span>
                                                 </label>
                                             ))}
@@ -306,29 +376,195 @@ export function AccountManager() {
                                 />
                             </fieldset>
 
-                            {watchType === "YIELDING" && (
-                                <div className="space-y-2">
-                                    <Label htmlFor="cdiPercentage">Rendimento (% do CDI)</Label>
-                                    <Controller
-                                        control={form.control}
-                                        name="cdiPercentage"
-                                        render={({ field }) => (
-                                            <Input
-                                                id="cdiPercentage"
-                                                type="number"
-                                                inputMode="decimal"
-                                                min={0}
-                                                step="0.5"
-                                                placeholder="Ex: 100"
-                                                value={field.value ?? ""}
-                                                onChange={(e) => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
-                                            />
+                            {watchCurrency === "USD" ? (
+                                <div className="space-y-4 rounded-lg border bg-muted/20 p-3.5">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="balanceUsd">Saldo em Dólar (US$)</Label>
+                                        <Controller
+                                            control={form.control}
+                                            name="balanceUsd"
+                                            render={({ field }) => (
+                                                <CurrencyInput
+                                                    id="balanceUsd"
+                                                    prefix="US$ "
+                                                    placeholder="US$ 0,00"
+                                                    value={field.value ?? ""}
+                                                    onChange={(val) => {
+                                                        const usd = val ?? 0;
+                                                        field.onChange(usd);
+                                                        const rate = form.getValues("purchaseExchangeRate");
+                                                        const invested = form.getValues("investedBrl");
+                                                        if (usd > 0 && rate && rate > 0) {
+                                                            form.setValue("investedBrl", Math.round(usd * rate * 100) / 100);
+                                                        } else if (usd > 0 && invested && invested > 0) {
+                                                            form.setValue("purchaseExchangeRate", Math.round((invested / usd) * 10000) / 10000);
+                                                        }
+                                                    }}
+                                                />
+                                            )}
+                                        />
+                                        {form.formState.errors.balanceUsd && (
+                                            <p className="text-xs text-red-500">{form.formState.errors.balanceUsd.message}</p>
                                         )}
-                                    />
-                                    {form.formState.errors.cdiPercentage && (
-                                        <p className="text-xs text-red-500">{form.formState.errors.cdiPercentage.message}</p>
+                                    </div>
+
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <div className="space-y-1.5">
+                                            <Label htmlFor="investedBrl">Quanto foi gasto na compra (R$)</Label>
+                                            <Controller
+                                                control={form.control}
+                                                name="investedBrl"
+                                                render={({ field }) => (
+                                                    <CurrencyInput
+                                                        id="investedBrl"
+                                                        prefix="R$ "
+                                                        placeholder="R$ 0,00"
+                                                        value={field.value ?? ""}
+                                                        onChange={(val) => {
+                                                            field.onChange(val);
+                                                            const usd = form.getValues("balanceUsd") ?? 0;
+                                                            if (val && val > 0 && usd > 0) {
+                                                                form.setValue(
+                                                                    "purchaseExchangeRate",
+                                                                    Math.round((val / usd) * 10000) / 10000,
+                                                                );
+                                                            }
+                                                        }}
+                                                    />
+                                                )}
+                                            />
+                                            <p className="text-[11px] text-muted-foreground">
+                                                Valor total desembolsado em reais no momento da compra.
+                                            </p>
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                            <Label htmlFor="purchaseExchangeRate">Cotação na compra (R$ / US$)</Label>
+                                            <Controller
+                                                control={form.control}
+                                                name="purchaseExchangeRate"
+                                                render={({ field }) => (
+                                                    <CurrencyInput
+                                                        id="purchaseExchangeRate"
+                                                        prefix="R$ "
+                                                        decimalScale={4}
+                                                        placeholder="R$ 5,7500"
+                                                        value={field.value ?? ""}
+                                                        onChange={(val) => {
+                                                            field.onChange(val);
+                                                            const usd = form.getValues("balanceUsd") ?? 0;
+                                                            if (val && val > 0 && usd > 0) {
+                                                                form.setValue(
+                                                                    "investedBrl",
+                                                                    Math.round(usd * val * 100) / 100,
+                                                                );
+                                                            }
+                                                        }}
+                                                    />
+                                                )}
+                                            />
+                                            <p className="text-[11px] text-muted-foreground">
+                                                Câmbio pago por US$ 1,00 quando comprou o dólar.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {form.formState.errors.investedBrl && (
+                                        <p className="text-xs text-red-500">{form.formState.errors.investedBrl.message}</p>
+                                    )}
+
+                                    {(watchBalanceUsd ?? 0) > 0 && ((watchInvestedBrl ?? 0) > 0 || (watchPurchaseRate ?? 0) > 0) && (
+                                        <div className="rounded-md bg-card px-3 py-2 text-xs text-muted-foreground border">
+                                            Custo registrado na compra:{" "}
+                                            <span className="font-semibold text-foreground">
+                                                {formatBRL(watchInvestedBrl ?? ((watchBalanceUsd ?? 0) * (watchPurchaseRate ?? 0)))}
+                                            </span>{" "}
+                                            ({formatUSD(watchBalanceUsd ?? 0)} a{" "}
+                                            {formatRate(watchPurchaseRate ?? ((watchInvestedBrl ?? 0) / (watchBalanceUsd || 1)))}/US$).
+                                            O saldo em reais será atualizado automaticamente com o dólar de hoje.
+                                        </div>
                                     )}
                                 </div>
+                            ) : (
+                                <>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="balance">Saldo Atual / Inicial</Label>
+                                        <Controller
+                                            control={form.control}
+                                            name="balance"
+                                            render={({ field }) => (
+                                                <CurrencyInput
+                                                    id="balance"
+                                                    placeholder="R$ 0,00"
+                                                    value={field.value ?? ""}
+                                                    onChange={(val) => field.onChange(val ?? 0)}
+                                                />
+                                            )}
+                                        />
+                                        {form.formState.errors.balance && (
+                                            <p className="text-xs text-red-500">{form.formState.errors.balance.message}</p>
+                                        )}
+                                        <p className="text-xs text-gray-500">Você pode ajustar o saldo inicial para bater com sua conta de banco real.</p>
+                                    </div>
+
+                                    <fieldset className="space-y-2">
+                                        <legend className="mb-2 text-sm font-medium">Tipo de conta</legend>
+                                        <Controller
+                                            control={form.control}
+                                            name="type"
+                                            render={({ field }) => (
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {(["CHECKING", "YIELDING"] as const).map(option => (
+                                                        <label
+                                                            key={option}
+                                                            className={`flex cursor-pointer flex-col gap-0.5 rounded-lg border p-3 text-sm transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring ${field.value === option ? "border-foreground bg-muted/50" : "hover:bg-muted/40"}`}
+                                                        >
+                                                            <span className="flex items-center gap-2 font-medium">
+                                                                <input
+                                                                    type="radio"
+                                                                    name="account-type"
+                                                                    value={option}
+                                                                    checked={field.value === option}
+                                                                    onChange={() => field.onChange(option)}
+                                                                    className="h-4 w-4 accent-foreground"
+                                                                />
+                                                                {ACCOUNT_TYPE_LABELS[option]}
+                                                            </span>
+                                                            <span className="pl-6 text-xs text-muted-foreground">
+                                                                {option === "CHECKING" ? "Não rende. Usada primeiro nos pagamentos." : "Rende um % do CDI (ex: Mercado Pago)."}
+                                                            </span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        />
+                                    </fieldset>
+
+                                    {watchType === "YIELDING" && (
+                                        <div className="space-y-2">
+                                            <Label htmlFor="cdiPercentage">Rendimento (% do CDI)</Label>
+                                            <Controller
+                                                control={form.control}
+                                                name="cdiPercentage"
+                                                render={({ field }) => (
+                                                    <Input
+                                                        id="cdiPercentage"
+                                                        type="number"
+                                                        inputMode="decimal"
+                                                        min={0}
+                                                        step="0.5"
+                                                        placeholder="Ex: 100"
+                                                        value={field.value ?? ""}
+                                                        onChange={(e) => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+                                                    />
+                                                )}
+                                            />
+                                            {form.formState.errors.cdiPercentage && (
+                                                <p className="text-xs text-red-500">{form.formState.errors.cdiPercentage.message}</p>
+                                            )}
+                                        </div>
+                                    )}
+                                </>
                             )}
 
                             <DialogFooter className="mt-6">
@@ -354,51 +590,124 @@ export function AccountManager() {
                 </div>
             ) : (
                 <div className="grid gap-4 sm:grid-cols-2">
-                    {accounts.map((acc) => (
-                        <Card key={acc.id} className="overflow-hidden border-l-4 border-l-indigo-500 hover:shadow-md transition-shadow">
-                            <CardContent className="p-5">
-                                <div className="flex justify-between items-start">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
-                                            <Building2 className="h-5 w-5" />
+                    {accounts.map((acc) => {
+                        const usd = isUsdAccount(acc);
+                        const usdMetrics = usd
+                            ? computeUsdAccountMetrics({
+                                balanceUsd: acc.balanceUsd,
+                                investedBrl: acc.investedBrl,
+                                purchaseExchangeRate: acc.purchaseExchangeRate,
+                                currentExchangeRate: acc.currentExchangeRate,
+                                fallbackBalanceBrl: acc.balance,
+                            })
+                            : null;
+
+                        return (
+                            <Card key={acc.id} className="overflow-hidden border-l-4 border-l-indigo-500 hover:shadow-md transition-shadow">
+                                <CardContent className="p-5">
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                                                {usd ? <DollarSign className="h-5 w-5" /> : <Building2 className="h-5 w-5" />}
+                                            </div>
+                                            <div>
+                                                <h4 className="font-semibold text-gray-900">{acc.name}</h4>
+                                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                    {usd ? (
+                                                        <>
+                                                            <span className="inline-block rounded bg-blue-500/15 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                                                                Conta em Dólar (US$)
+                                                            </span>
+                                                            {usdMetrics?.currentExchangeRate && (
+                                                                <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
+                                                                    Dólar hoje: {formatRate(usdMetrics.currentExchangeRate)}
+                                                                </span>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        <span className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${isYielding(acc) ? "bg-positive-soft text-positive" : "bg-muted text-muted-foreground"}`}>
+                                                            {isYielding(acc) ? yieldLabel(acc) : ACCOUNT_TYPE_LABELS.CHECKING}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <h4 className="font-semibold text-gray-900">{acc.name}</h4>
-                                            <span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${isYielding(acc) ? "bg-positive-soft text-positive" : "bg-muted text-muted-foreground"}`}>
-                                                {isYielding(acc) ? yieldLabel(acc) : ACCOUNT_TYPE_LABELS.CHECKING}
+
+                                        <div className="flex gap-1 text-gray-400">
+                                            <button onClick={() => openEditDialog(acc)} className="p-1.5 hover:bg-gray-100 rounded-md hover:text-indigo-600 transition-colors" title="Editar">
+                                                <Pencil className="h-4 w-4" />
+                                            </button>
+                                            <button onClick={() => setAccountToDelete({ id: acc.id, name: acc.name })} className="p-1.5 hover:bg-red-50 rounded-md hover:text-red-600 transition-colors" title="Excluir">
+                                                <Trash2 className="h-4 w-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-baseline justify-between gap-2">
+                                        <div className="flex flex-wrap items-baseline gap-2">
+                                            <span className="text-2xl font-bold tracking-tight text-gray-900 tabular-nums">
+                                                <Money value={acc.balance} />
                                             </span>
+                                            {usd && usdMetrics && (
+                                                <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-foreground tabular-nums">
+                                                    <Money value={usdMetrics.balanceUsd} format={formatUSD} />
+                                                </span>
+                                            )}
                                         </div>
+                                        {isYielding(acc) && (
+                                            <span className="text-xs text-muted-foreground" title="Rendimento líquido (já descontado o IR) creditado diariamente neste mês">
+                                                Rendeu <span className="font-medium text-positive tabular-nums">+<Money value={acc.monthYield ?? 0} /></span> no mês
+                                            </span>
+                                        )}
                                     </div>
 
-                                    <div className="flex gap-1 text-gray-400">
-                                        <button onClick={() => openEditDialog(acc)} className="p-1.5 hover:bg-gray-100 rounded-md hover:text-indigo-600 transition-colors" title="Editar">
-                                            <Pencil className="h-4 w-4" />
-                                        </button>
-                                        <button onClick={() => setAccountToDelete({ id: acc.id, name: acc.name })} className="p-1.5 hover:bg-red-50 rounded-md hover:text-red-600 transition-colors" title="Excluir">
-                                            <Trash2 className="h-4 w-4" />
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-baseline justify-between gap-2">
-                                    <span className="text-2xl font-bold tracking-tight text-gray-900">
-                                        <Money value={acc.balance} />
-                                    </span>
-                                    {isYielding(acc) && (
-                                        <span className="text-xs text-muted-foreground" title="Rendimento líquido (já descontado o IR) creditado diariamente neste mês">
-                                            Rendeu <span className="font-medium text-positive tabular-nums">+<Money value={acc.monthYield ?? 0} /></span> no mês
-                                        </span>
+                                    {usd && usdMetrics && (
+                                        <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg border bg-muted/30 p-2.5 text-xs">
+                                            <div>
+                                                <div className="text-muted-foreground">Gasto na compra</div>
+                                                <div className="mt-0.5 font-semibold text-foreground tabular-nums">
+                                                    <Money value={usdMetrics.investedBrl} />
+                                                </div>
+                                                {usdMetrics.purchaseExchangeRate && (
+                                                    <div className="text-[11px] text-muted-foreground tabular-nums">
+                                                        a {formatRate(usdMetrics.purchaseExchangeRate)}/US$
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <div className="text-muted-foreground">Valor hoje (BRL)</div>
+                                                <div className="mt-0.5 font-semibold text-foreground tabular-nums">
+                                                    <Money value={usdMetrics.currentBalanceBrl} />
+                                                </div>
+                                                {usdMetrics.currentExchangeRate && (
+                                                    <div className="text-[11px] text-muted-foreground tabular-nums">
+                                                        a {formatRate(usdMetrics.currentExchangeRate)}/US$
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-muted-foreground">Variação cambial</div>
+                                                <div className={`mt-0.5 font-semibold tabular-nums ${usdMetrics.variationBrl >= 0 ? "text-positive" : "text-negative"}`}>
+                                                    {usdMetrics.variationBrl >= 0 ? "+" : ""}
+                                                    <Money value={usdMetrics.variationBrl} />
+                                                </div>
+                                                <div className={`text-[11px] font-medium tabular-nums ${usdMetrics.variationPct >= 0 ? "text-positive" : "text-negative"}`}>
+                                                    ({usdMetrics.variationPct >= 0 ? "+" : ""}{usdMetrics.variationPct.toFixed(2).replace(".", ",")}%)
+                                                </div>
+                                            </div>
+                                        </div>
                                     )}
-                                </div>
-                                {isYielding(acc) && (
-                                    <>
-                                        <p className="mt-1 text-[11px] text-muted-foreground">Rendimento líquido creditado a cada dia útil.</p>
-                                        <YieldPots account={acc} onChanged={() => fetchAccounts(true)} />
-                                    </>
-                                )}
-                            </CardContent>
-                        </Card>
-                    ))}
+
+                                    {isYielding(acc) && (
+                                        <>
+                                            <p className="mt-1 text-[11px] text-muted-foreground">Rendimento líquido creditado a cada dia útil.</p>
+                                            <YieldPots account={acc} onChanged={() => fetchAccounts(true)} />
+                                        </>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        );
+                    })}
                 </div>
             )}
 

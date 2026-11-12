@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
-import { ArrowUpCircle, Repeat, CreditCard, ShoppingBag, Check } from "lucide-react";
+import { ArrowUpCircle, Repeat, CreditCard, ShoppingBag, Check, ChevronRight } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type CashFlowData, type CashFlowSectionKey, shortMonthLabel } from "@/lib/cash-flow";
@@ -72,6 +72,9 @@ interface CashFlowSheetProps {
 
 /** Spreadsheet-like view of what is still open: rows grouped by section × one column per month. */
 export function CashFlowSheet({ data, highlight }: CashFlowSheetProps) {
+    const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
+    const toggleCard = (key: string) => setExpandedCards(prev => ({ ...prev, [key]: !prev[key] }));
+
     const isHighlighted = (i: number) =>
         !!highlight && data.months[i].year === highlight.year && data.months[i].month === highlight.month;
 
@@ -126,21 +129,53 @@ export function CashFlowSheet({ data, highlight }: CashFlowSheetProps) {
                                         <td colSpan={data.months.length + 1} />
                                     </tr>
                                 )}
-                                {section.rows.map(row => (
-                                    <tr key={row.key} className="border-b transition-colors hover:bg-muted/40">
-                                        <th scope="row" className={cn(stickyCell, "pl-10 font-normal")}>
-                                            {section.key === "CARDS" ? (
-                                                <Link href="/cartoes" className="underline-offset-4 hover:underline">{row.label}</Link>
-                                            ) : row.label}
-                                        </th>
-                                        {row.values.map((v, i) => (
-                                            <td key={i} className={cellClass(i)}>
-                                                <OpenCell value={v} open={row.open[i]} kind={section.kind} />
-                                            </td>
-                                        ))}
-                                        <td className="px-4 py-2 text-right"><Amount value={sum(row.open)} /></td>
-                                    </tr>
-                                ))}
+                                {section.rows.map(row => {
+                                    const hasHolders = section.key === "CARDS" && (row.subRows?.length ?? 0) > 1;
+                                    const isExpanded = !!expandedCards[row.key];
+                                    return (
+                                        <Fragment key={row.key}>
+                                            <tr className="border-b transition-colors hover:bg-muted/40">
+                                                <th scope="row" className={cn(stickyCell, "pl-10 font-normal")}>
+                                                    {section.key === "CARDS" ? (
+                                                        <span className="inline-flex items-center gap-1.5">
+                                                            {hasHolders && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggleCard(row.key)}
+                                                                    aria-expanded={isExpanded}
+                                                                    aria-label={isExpanded ? `Recolher portadores de ${row.label}` : `Ver portadores de ${row.label}`}
+                                                                    className="-ml-5 flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                                                                >
+                                                                    <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", isExpanded && "rotate-90")} aria-hidden="true" />
+                                                                </button>
+                                                            )}
+                                                            <Link href="/cartoes" className="underline-offset-4 hover:underline">{row.label}</Link>
+                                                        </span>
+                                                    ) : row.label}
+                                                </th>
+                                                {row.values.map((v, i) => (
+                                                    <td key={i} className={cellClass(i)}>
+                                                        <OpenCell value={v} open={row.open[i]} kind={section.kind} />
+                                                    </td>
+                                                ))}
+                                                <td className="px-4 py-2 text-right"><Amount value={sum(row.open)} /></td>
+                                            </tr>
+                                            {hasHolders && isExpanded && row.subRows?.map(sub => (
+                                                <tr key={`${row.key}-${sub.key}`} className="border-b bg-muted/20 text-xs text-muted-foreground">
+                                                    <th scope="row" className={cn(stickyCell, "bg-muted/20 pl-14 font-normal")}>
+                                                        {sub.label}
+                                                    </th>
+                                                    {sub.values.map((v, i) => (
+                                                        <td key={i} className={cellClass(i)}>
+                                                            <OpenCell value={v} open={sub.open[i]} kind={section.kind} />
+                                                        </td>
+                                                    ))}
+                                                    <td className="px-4 py-2 text-right"><Amount value={sum(sub.open)} /></td>
+                                                </tr>
+                                            ))}
+                                        </Fragment>
+                                    );
+                                })}
                             </Fragment>
                         );
                     })}

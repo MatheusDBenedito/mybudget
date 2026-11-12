@@ -2,30 +2,37 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
     DASHBOARD_LAYOUT_CACHE_KEY,
+    DEFAULT_DASHBOARD_HEIGHT_PX,
     DEFAULT_LAYOUT,
-    moveBy,
+    MAX_DASHBOARD_HEIGHT_PX,
+    MAX_DASHBOARD_WIDTH_PCT,
+    MIN_DASHBOARD_HEIGHT_PX,
+    MIN_DASHBOARD_WIDTH_PCT,
     moveTo,
     normalizeLayout,
     readCachedLayout,
-    setWidth,
+    setBlockSize,
+    widthCssPercent,
     writeCachedLayout,
 } from "./dashboard-layout.ts";
 
 describe("normalizeLayout", () => {
-    test("keeps the saved order and widths", () => {
+    test("keeps the saved order, widths and heights (migrating legacy 12-col widths and sm/md/lg)", () => {
         const layout = normalizeLayout([
-            { id: "bills", width: 12 },
-            { id: "forecast", width: 6 },
+            { id: "bills", width: 12, height: "lg" },
+            { id: "forecast", width: 4, height: 385 },
+            { id: "cards", width: 45 },
         ]);
 
-        assert.deepEqual(layout.slice(0, 2), [
-            { id: "bills", width: 12 },
-            { id: "forecast", width: 6 },
+        assert.deepEqual(layout.slice(0, 3), [
+            { id: "bills", width: 100, height: 580 },
+            { id: "forecast", width: 33, height: 385 },
+            { id: "cards", width: 45, height: DEFAULT_DASHBOARD_HEIGHT_PX },
         ]);
     });
 
     test("appends missing blocks in the default order", () => {
-        const layout = normalizeLayout([{ id: "cards", width: 4 }]);
+        const layout = normalizeLayout([{ id: "cards", width: 33 }]);
 
         assert.equal(layout.length, DEFAULT_LAYOUT.length);
         assert.equal(layout[0].id, "cards");
@@ -37,20 +44,22 @@ describe("normalizeLayout", () => {
 
     test("drops unknown and duplicated blocks", () => {
         const layout = normalizeLayout([
-            { id: "forecast", width: 8 },
-            { id: "forecast", width: 12 },
-            { id: "nope", width: 4 },
+            { id: "forecast", width: 67, height: 500 },
+            { id: "forecast", width: 100, height: 600 },
+            { id: "nope", width: 33, height: 400 },
         ]);
 
         assert.equal(layout.filter(item => item.id === "forecast").length, 1);
-        assert.equal(layout[0].width, 8);
+        assert.equal(layout[0].width, 67);
+        assert.equal(layout[0].height, 500);
         assert.equal(layout.length, DEFAULT_LAYOUT.length);
     });
 
-    test("replaces an invalid width with the default width", () => {
-        const layout = normalizeLayout([{ id: "bills", width: 7 }]);
+    test("replaces an out-of-range width with the default width", () => {
+        const layout = normalizeLayout([{ id: "bills", width: 150, height: 400 }]);
 
-        assert.deepEqual(layout[0], DEFAULT_LAYOUT.find(item => item.id === "bills"));
+        assert.equal(layout[0].width, DEFAULT_LAYOUT.find(item => item.id === "bills")?.width);
+        assert.equal(layout[0].height, 400);
     });
 
     test("falls back to the default layout for non-array input", () => {
@@ -74,31 +83,34 @@ describe("moveTo", () => {
     });
 });
 
-describe("moveBy", () => {
-    test("swaps with the previous and next blocks", () => {
-        const right = moveBy(DEFAULT_LAYOUT, "forecast", 1);
-        assert.deepEqual(right.slice(0, 2).map(item => item.id), ["bills", "forecast"]);
+describe("setBlockSize", () => {
+    test("resizes width (%) and height (px) freely within bounds", () => {
+        const resized = setBlockSize(DEFAULT_LAYOUT, "cards", { width: 42, height: 515 });
+        assert.deepEqual(resized.find(item => item.id === "cards"), {
+            id: "cards",
+            width: 42,
+            height: 515,
+        });
 
-        const back = moveBy(right, "forecast", -1);
-        assert.deepEqual(back.map(item => item.id), DEFAULT_LAYOUT.map(item => item.id));
+        const clampedMin = setBlockSize(DEFAULT_LAYOUT, "cards", { width: 5, height: 100 });
+        assert.deepEqual(clampedMin.find(item => item.id === "cards"), {
+            id: "cards",
+            width: MIN_DASHBOARD_WIDTH_PCT,
+            height: MIN_DASHBOARD_HEIGHT_PX,
+        });
+
+        const clampedMax = setBlockSize(DEFAULT_LAYOUT, "cards", { width: 140, height: 2000 });
+        assert.deepEqual(clampedMax.find(item => item.id === "cards"), {
+            id: "cards",
+            width: MAX_DASHBOARD_WIDTH_PCT,
+            height: MAX_DASHBOARD_HEIGHT_PX,
+        });
     });
 
-    test("does nothing at the edges", () => {
-        assert.equal(moveBy(DEFAULT_LAYOUT, "forecast", -1), DEFAULT_LAYOUT);
-        assert.equal(moveBy(DEFAULT_LAYOUT, "investments-chart", 1), DEFAULT_LAYOUT);
-    });
-});
-
-describe("setWidth", () => {
-    test("changes only the target block", () => {
-        const resized = setWidth(DEFAULT_LAYOUT, "cards", 12);
-
-        assert.equal(resized.find(item => item.id === "cards")?.width, 12);
-        assert.deepEqual(
-            resized.filter(item => item.id !== "cards"),
-            DEFAULT_LAYOUT.filter(item => item.id !== "cards"),
-        );
-        assert.equal(DEFAULT_LAYOUT.find(item => item.id === "cards")?.width, 4);
+    test("formats thirds cleanly so 3 cards always fit side by side", () => {
+        assert.equal(widthCssPercent(33), "33.33%");
+        assert.equal(widthCssPercent(67), "66.66%");
+        assert.equal(widthCssPercent(50), "50%");
     });
 });
 
@@ -135,10 +147,11 @@ describe("layout cache", () => {
 
     test("normalizes a partial cached layout", () => {
         const target = storage();
-        target.setItem(DASHBOARD_LAYOUT_CACHE_KEY, JSON.stringify([{ id: "cards", width: 6 }]));
+        target.setItem(DASHBOARD_LAYOUT_CACHE_KEY, JSON.stringify([{ id: "cards", width: 50 }]));
 
         const cached = readCachedLayout(target);
         assert.equal(cached?.[0].id, "cards");
+        assert.equal(cached?.[0].height, DEFAULT_DASHBOARD_HEIGHT_PX);
         assert.equal(cached?.length, DEFAULT_LAYOUT.length);
     });
 });

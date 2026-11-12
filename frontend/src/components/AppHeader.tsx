@@ -2,14 +2,29 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Gauge, CreditCard, LayoutGrid, ChartColumn, Settings, CircleDollarSign, Plane, ArrowLeftRight, Eye, EyeOff } from "lucide-react";
+import { Gauge, CreditCard, LayoutGrid, ChartColumn, Settings, CircleDollarSign, Plane, ArrowLeftRight, Eye, EyeOff, ChevronDown, Briefcase, HandCoins } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePrivacy } from "@/lib/privacy";
 
-const NAV_ITEMS = [
+type NavItem = {
+    href: string;
+    label: string;
+    icon: typeof Gauge;
+    children?: Array<{ href: string; label: string; icon: typeof Gauge; exact?: boolean }>;
+};
+
+const NAV_ITEMS: NavItem[] = [
     { href: "/", label: "Resumo", icon: Gauge },
     { href: "/fluxo-de-caixa", label: "Fluxo de Caixa", icon: ArrowLeftRight },
-    { href: "/investimentos", label: "Investimentos", icon: LayoutGrid },
+    {
+        href: "/investimentos",
+        label: "Investimentos",
+        icon: LayoutGrid,
+        children: [
+            { href: "/investimentos", label: "Carteira", icon: Briefcase, exact: true },
+            { href: "/investimentos/proventos", label: "Proventos", icon: HandCoins },
+        ],
+    },
     { href: "/cartoes", label: "Cartões", icon: CreditCard },
     { href: "/milhas", label: "Milhas", icon: Plane },
     { href: "/relatorios", label: "Relatórios", icon: ChartColumn },
@@ -55,11 +70,11 @@ export function AppHeader() {
 
             <nav className="border-b bg-card" aria-label="Navegação principal">
                 <div className="mx-auto max-w-[1680px] px-4 sm:px-6 lg:px-8">
-                    <ul className="-mb-px flex gap-6 overflow-x-auto [scrollbar-width:none]">
-                        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+                    <ul className="-mb-px flex gap-6 overflow-x-auto sm:overflow-visible [scrollbar-width:none]">
+                        {NAV_ITEMS.map(({ href, label, icon: Icon, children }) => {
                             const active = isActive(href);
                             return (
-                                <li key={href}>
+                                <li key={href} className="relative group">
                                     <Link
                                         href={href}
                                         aria-current={active ? "page" : undefined}
@@ -72,7 +87,37 @@ export function AppHeader() {
                                     >
                                         <Icon className="h-4 w-4" aria-hidden="true" />
                                         {label}
+                                        {children && (
+                                            <ChevronDown className="h-3.5 w-3.5 opacity-60 transition-transform group-hover:rotate-180" aria-hidden="true" />
+                                        )}
                                     </Link>
+                                    {children && (
+                                        <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 absolute left-0 top-full z-40 pt-1 transition-all duration-150">
+                                            <div className="min-w-[190px] rounded-lg border bg-card p-1.5 shadow-lg">
+                                                {children.map((sub) => {
+                                                    const SubIcon = sub.icon;
+                                                    const subActive = sub.exact
+                                                        ? pathname === sub.href
+                                                        : pathname.startsWith(sub.href);
+                                                    return (
+                                                        <Link
+                                                            key={sub.href}
+                                                            href={sub.href}
+                                                            className={cn(
+                                                                "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+                                                                subActive
+                                                                    ? "bg-muted font-medium text-foreground"
+                                                                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                                                            )}
+                                                        >
+                                                            <SubIcon className="h-4 w-4" aria-hidden="true" />
+                                                            {sub.label}
+                                                        </Link>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
                                 </li>
                             );
                         })}

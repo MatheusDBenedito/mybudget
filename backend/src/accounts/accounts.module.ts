@@ -8,5 +8,6 @@ import { TransfersService } from './transfers.service';
 @Module({
   controllers: [AccountsController],
   providers: [AccountsService, AccountYieldService, YieldPotsService, TransfersService],
+  exports: [AccountsService],
 })
 export class AccountsModule {}

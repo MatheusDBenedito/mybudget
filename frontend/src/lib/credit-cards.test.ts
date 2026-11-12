@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
     primaryCard,
     groupInvoice,
+    groupInvoiceByHolder,
     openInvoiceMonth,
     holdersOf,
     mainHolder,
@@ -130,5 +131,22 @@ describe("holderTotals", () => {
     test("filters by holder and keeps all items when nothing is selected", () => {
         assert.equal(filterByHolder(items, null).length, 3);
         assert.deepEqual(filterByHolder(items, "wife").map(i => i.amount), [30]);
+    });
+
+    test("groupInvoiceByHolder splits the same card invoice into titular and additional sections", () => {
+        const { sections, total } = groupInvoiceByHolder(items, [
+            ...holders,
+            { id: "empty", name: "Filho", isMain: false },
+        ]);
+
+        assert.equal(total, 180.25);
+        assert.deepEqual(
+            sections.map(s => [s.id, s.isMain, s.items.length, s.total]),
+            [
+                ["me", true, 2, 150.25],
+                ["wife", false, 1, 30],
+                ["empty", false, 0, 0],
+            ],
+        );
     });
 });

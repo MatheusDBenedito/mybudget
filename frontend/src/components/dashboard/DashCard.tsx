@@ -14,15 +14,15 @@ export function DashCard({ title, subtitle, art, actions, className, children }:
     children: React.ReactNode;
 }) {
     return (
-        <section className={cn("relative min-w-0 overflow-hidden rounded-2xl border bg-card p-5", className)} aria-label={title}>
-            <header className="mb-3 flex items-start justify-between gap-3">
+        <section className={cn("relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border bg-card p-5", className)} aria-label={title}>
+            <header className="mb-3 flex shrink-0 items-start justify-between gap-3">
                 <div className="min-w-0">
                     <h2 className="text-[15px] font-semibold">{title}</h2>
                     {subtitle && <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>}
                 </div>
                 {actions ?? (art && <Art {...art} />)}
             </header>
-            {children}
+            <div className="flex min-h-0 flex-1 flex-col">{children}</div>
         </section>
     );
 }

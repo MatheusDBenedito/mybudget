@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import { AccountType } from '@prisma/client';
 
 export class CreateAccountDto {
@@ -9,6 +9,26 @@ export class CreateAccountDto {
     @IsNumber()
     @IsOptional()
     balance?: number;
+
+    @IsString()
+    @IsIn(['BRL', 'USD'])
+    @IsOptional()
+    currency?: 'BRL' | 'USD';
+
+    @IsNumber()
+    @Min(0)
+    @IsOptional()
+    balanceUsd?: number | null;
+
+    @IsNumber()
+    @Min(0)
+    @IsOptional()
+    investedBrl?: number | null;
+
+    @IsNumber()
+    @Min(0)
+    @IsOptional()
+    purchaseExchangeRate?: number | null;
 
     // CHECKING = conta corrente (não rende); YIELDING = conta remunerada (% do CDI)
     @IsEnum(AccountType)

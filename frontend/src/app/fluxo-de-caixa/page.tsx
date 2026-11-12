@@ -17,6 +17,7 @@ import type { CashFlowData } from "@/lib/cash-flow";
 import { SettleTransactionDialog } from "@/components/cash-flow/SettleTransactionDialog";
 import { DeleteTransactionDialog, type DeleteScope } from "@/components/cash-flow/DeleteTransactionDialog";
 import type { AccountLike } from "@/lib/accounts";
+import { type ApiInvestment, grossValueOf } from "@/lib/investments";
 
 type ApiAccount = AccountLike;
 
@@ -28,6 +29,7 @@ export default function FluxoDeCaixaPage() {
     const [cashFlow, setCashFlow] = useState<CashFlowData | null>(null);
     const [transactions, setTransactions] = useState<ApiTransaction[]>([]);
     const [accounts, setAccounts] = useState<ApiAccount[]>([]);
+    const [investments, setInvestments] = useState<ApiInvestment[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     // Each load gets a sequence number so a slow, older response never overwrites newer data
@@ -38,20 +40,23 @@ export default function FluxoDeCaixaPage() {
         const seq = ++loadSeq.current;
         if (!silent) setIsLoading(true);
         try {
-            const [flowRes, txRes, accRes] = await Promise.all([
+            const [flowRes, txRes, accRes, invRes] = await Promise.all([
                 fetch(`http://localhost:3333/cash-flow?month=${month}&year=${year}&months=12`),
                 fetch(`http://localhost:3333/transactions?month=${month}&year=${year}`),
                 fetch("http://localhost:3333/accounts"),
+                fetch("http://localhost:3333/investments"),
             ]);
-            const [flow, txs, accs] = await Promise.all([
+            const [flow, txs, accs, invs] = await Promise.all([
                 flowRes.ok ? flowRes.json() : null,
                 txRes.ok ? txRes.json() : null,
                 accRes.ok ? accRes.json() : null,
+                invRes.ok ? invRes.json() : null,
             ]);
             if (seq !== loadSeq.current) return;
             if (flow) setCashFlow(flow);
             if (txs) setTransactions(txs);
             if (accs) setAccounts(accs);
+            if (invs) setInvestments(invs);
         } catch (error) {
             console.error("Failed to load cash flow", error);
             if (seq === loadSeq.current) toast.error("Não foi possível carregar o fluxo de caixa.");
@@ -74,25 +79,36 @@ export default function FluxoDeCaixaPage() {
     // Transaction waiting for the user to pick the account that receives/pays it
     const [settling, setSettling] = useState<ApiTransaction | null>(null);
 
-    const applyStatus = async (transaction: ApiTransaction, status: "PAID" | "PENDING", accountId?: string) => {
+    const applyStatus = async (transaction: ApiTransaction, status: "PAID" | "PENDING", accountId?: string, amount?: number) => {
         const previousTransactions = transactions;
         const previousAccounts = accounts;
+        const effectiveAmount = amount ?? transaction.amount;
 
         // Optimistic: the item leaves (or returns to) "A receber"/"A pagar" and the account balance moves immediately
-        const delta = transaction.type === "INCOME" ? transaction.amount : -transaction.amount;
+        const delta = transaction.type === "INCOME" ? effectiveAmount : -effectiveAmount;
         const affectedAccount = status === "PAID" ? accountId ?? transaction.accountId : transaction.accountId;
         setTransactions(list => list.map(t => (t.id === transaction.id
-            ? { ...t, status, accountId: status === "PAID" ? affectedAccount : t.accountId }
+            ? { ...t, status, amount: effectiveAmount, accountId: status === "PAID" ? affectedAccount : t.accountId }
             : t)));
-        setAccounts(list => list.map(a => (a.id === affectedAccount
-            ? { ...a, balance: a.balance + (status === "PAID" ? delta : -delta) }
-            : a)));
+        setAccounts(list => list.map(a => {
+            if (a.id !== affectedAccount) return a;
+            const d = status === "PAID" ? delta : -delta;
+            return {
+                ...a,
+                balance: a.balance + d,
+                grossBalance: (a.grossBalance ?? a.balance) + d,
+            };
+        }));
 
         try {
+            const body: Record<string, unknown> = { status };
+            if (status === "PAID" && accountId) body.accountId = accountId;
+            if (status === "PAID" && amount !== undefined) body.amount = amount;
+
             const res = await fetch(`http://localhost:3333/transactions/${transaction.id}/status`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(status === "PAID" && accountId ? { status, accountId } : { status }),
+                body: JSON.stringify(body),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const account = accounts.find(a => a.id === affectedAccount)?.name.trim();
@@ -145,7 +161,9 @@ export default function FluxoDeCaixaPage() {
     const expenses = cashFlow?.summary.expenses[0] ?? 0;
     const openIncome = cashFlow?.summary.openIncome[0] ?? 0;
     const openExpenses = cashFlow?.summary.openExpenses[0] ?? 0;
-    const accountsTotal = accounts.reduce((acc, a) => acc + a.balance, 0);
+    const accountGross = (a: ApiAccount) => a.grossBalance ?? a.balance;
+    const investmentsTotal = investments.reduce((acc, inv) => acc + grossValueOf(inv), 0);
+    const accountsTotal = accounts.reduce((acc, a) => acc + accountGross(a), 0) + investmentsTotal;
     const today = { year: now.getFullYear(), month: now.getMonth() + 1 };
 
     return (
@@ -174,18 +192,24 @@ export default function FluxoDeCaixaPage() {
 
             {/* Recebimentos, Despesas and Contas; Contas is pinned to the right (below on small screens) */}
             <div className="grid gap-4 sm:grid-cols-3">
-                <StatCard title="Contas" icon={Landmark} info="Saldo atual de cada conta bancária." className="sm:order-3">
+                <StatCard title="Contas e Investimentos" icon={Landmark} info="Saldo bruto atual de cada conta bancária (incluindo cofrinhos) somado aos investimentos." className="sm:order-3">
                     <ul className="space-y-1 text-sm">
-                        {accounts.map(acc => (
-                            <li key={acc.id} className="flex justify-between gap-2">
-                                <span className="truncate text-muted-foreground">{acc.name}</span>
-                                <span className={`tabular-nums ${acc.balance < 0 ? "text-negative" : ""}`}><Money value={acc.balance} /></span>
-                            </li>
-                        ))}
-                        {accounts.length === 0 && !isLoading && <li className="text-muted-foreground">Nenhuma conta cadastrada.</li>}
+                        {accounts.map(acc => {
+                            const gross = accountGross(acc);
+                            return (
+                                <li key={acc.id} className="flex justify-between gap-2">
+                                    <span className="truncate text-muted-foreground">{acc.name}</span>
+                                    <span className={`tabular-nums ${gross < 0 ? "text-negative" : ""}`}><Money value={gross} /></span>
+                                </li>
+                            );
+                        })}
+                        <li className="flex justify-between gap-2">
+                            <span className="truncate text-muted-foreground">Investimentos</span>
+                            <span className="tabular-nums"><Money value={investmentsTotal} /></span>
+                        </li>
                     </ul>
                     <div className="mt-2 flex justify-between gap-2 border-t pt-2 text-sm">
-                        <span className="text-muted-foreground">Total</span>
+                        <span className="text-muted-foreground">Total bruto</span>
                         <span className="font-medium tabular-nums"><Money value={accountsTotal} /></span>
                     </div>
                 </StatCard>
@@ -210,7 +234,7 @@ export default function FluxoDeCaixaPage() {
 
             </div>
 
-            <MonthTransactions transactions={transactions} isLoading={isLoading} onToggleStatus={toggleStatus} onDelete={setDeleting} />
+            <MonthTransactions transactions={transactions} isLoading={isLoading} onToggleStatus={toggleStatus} onDelete={setDeleting} onEditSuccess={() => load({ silent: true })} />
 
             <Panel title="Visão geral — próximos 12 meses" icon={Table2} flush>
                 {cashFlow ? (
@@ -242,10 +266,10 @@ export default function FluxoDeCaixaPage() {
                 transaction={settling}
                 accounts={accounts}
                 onCancel={() => setSettling(null)}
-                onConfirm={(accountId) => {
+                onConfirm={(accountId, amount) => {
                     const transaction = settling;
                     setSettling(null);
-                    if (transaction) applyStatus(transaction, "PAID", accountId);
+                    if (transaction) applyStatus(transaction, "PAID", accountId, amount);
                 }}
             />
         </div>

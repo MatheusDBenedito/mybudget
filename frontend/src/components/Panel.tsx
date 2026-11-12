@@ -15,8 +15,8 @@ interface PanelProps {
 /** Titled white card used for lists, tables and charts. */
 export function Panel({ title, icon: Icon, count, actions, className, flush, children }: PanelProps) {
     return (
-        <section className={cn("min-w-0 overflow-hidden rounded-lg border bg-card", className)} aria-label={title}>
-            <header className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+        <section className={cn("flex min-w-0 flex-col overflow-hidden rounded-lg border bg-card", className)} aria-label={title}>
+            <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
                 <div className="flex items-center gap-3">
                     {Icon && (
                         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
@@ -30,7 +30,7 @@ export function Panel({ title, icon: Icon, count, actions, className, flush, chi
                 </div>
                 {actions}
             </header>
-            <div className={flush ? undefined : "p-4"}>{children}</div>
+            <div className={cn("flex min-h-0 flex-1 flex-col", flush ? undefined : "p-4")}>{children}</div>
         </section>
     );
 }

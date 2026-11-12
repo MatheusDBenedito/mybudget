@@ -31,12 +31,19 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Plus, Trash2 } from "lucide-react";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { ORIGIN_PROGRAMS } from "@/lib/miles";
+
+type AdditionalHolderDraft = {
+    name: string;
+    last4: string;
+};
 
 const cardSchema = z.object({
     name: z.string().min(2, "O nome deve ter pelo menos 2 caracteres."),
     holderName: z.string().min(2, "Informe o nome do titular."),
+    holderLast4: z.string().regex(/^(\d{4})?$/, "Informe 4 dígitos.").optional(),
     limit: z.number({ message: "Insira um valor válido." }).positive("O limite deve ser maior que zero."),
     invoiceClosingOffset: z.number().min(1, "Dia inválido.").max(28, "Limite de antecedência irreal."),
     dueDay: z.number().min(1, "Dia inválido.").max(28, "Para evitar bugs em fevereiro, limite o dia até 28."),
@@ -91,6 +98,7 @@ interface CreateCardModalProps {
 export function CreateCardModal({ children, initialData, onSuccess }: CreateCardModalProps) {
     const [open, setOpen] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [additionalHolders, setAdditionalHolders] = useState<AdditionalHolderDraft[]>([]);
 
     const programListId = useId();
 
@@ -99,6 +107,7 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
         defaultValues: {
             name: initialData?.name || "",
             holderName: "Matheus",
+            holderLast4: "",
             limit: initialData?.limit || 0,
             invoiceClosingOffset: initialData?.invoiceClosingOffset || 7,
             dueDay: initialData?.dueDay || 10,
@@ -110,9 +119,11 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
 
     useEffect(() => {
         if (open) {
+            setAdditionalHolders([]);
             form.reset({
                 name: initialData?.name || "",
                 holderName: "Matheus",
+                holderLast4: "",
                 limit: initialData?.limit || 0,
                 invoiceClosingOffset: initialData?.invoiceClosingOffset || 7,
                 dueDay: initialData?.dueDay || 10,
@@ -133,8 +144,8 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
             const method = isEditing ? "PATCH" : "POST";
 
             const payload = isEditing
-                ? { ...data, holderName: undefined }
-                : { ...data, holderName: data.holderName.trim() };
+                ? { ...data, holderName: undefined, holderLast4: undefined }
+                : { ...data, holderName: data.holderName.trim(), holderLast4: undefined };
 
             const res = await fetch(url, {
                 method,
@@ -144,8 +155,33 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
             });
 
             if (res.ok) {
+                if (!isEditing) {
+                    const created = await res.json();
+                    const mainHolderId = created?.holders?.[0]?.id;
+                    const cleanLast4 = data.holderLast4?.trim();
+                    if (mainHolderId && cleanLast4) {
+                        await fetch(`http://localhost:3333/credit-cards/${created.id}/holders/${mainHolderId}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ last4: cleanLast4 }),
+                        });
+                    }
+                    for (const extra of additionalHolders) {
+                        const extraName = extra.name.trim();
+                        if (extraName.length < 2) continue;
+                        await fetch(`http://localhost:3333/credit-cards/${created.id}/holders`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                name: extraName,
+                                last4: extra.last4.trim() || undefined,
+                            }),
+                        });
+                    }
+                }
                 setOpen(false);
                 form.reset();
+                setAdditionalHolders([]);
                 toast.success(isEditing ? "Cartão atualizado com sucesso!" : "Cartão de crédito cadastrado!");
                 if (onSuccess) {
                     onSuccess();
@@ -169,7 +205,7 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[500px]">
                 <DialogHeader>
                     <DialogTitle>{initialData ? "Editar Cartão" : "Adicionar Cartão"}</DialogTitle>
                     <DialogDescription>
@@ -193,22 +229,79 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
                         />
 
                         {!initialData && (
-                            <FormField
-                                control={form.control}
-                                name="holderName"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Portador Titular</FormLabel>
-                                        <FormControl>
-                                            <Input placeholder="Ex: Matheus" {...field} />
-                                        </FormControl>
-                                        <p className="text-xs text-muted-foreground">
-                                            Os cartões adicionais são cadastrados depois, em “Portadores”.
-                                        </p>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
+                            <fieldset className="space-y-3 rounded-lg border p-3.5">
+                                <legend className="px-1 text-sm font-medium">Portadores (Titular e Adicionais)</legend>
+                                <div className="grid grid-cols-[1fr_110px] gap-2">
+                                    <FormField
+                                        control={form.control}
+                                        name="holderName"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Titular</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="Ex: Matheus" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="holderLast4"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Final (opc.)</FormLabel>
+                                                <FormControl>
+                                                    <Input
+                                                        placeholder="1234"
+                                                        maxLength={4}
+                                                        inputMode="numeric"
+                                                        value={field.value ?? ""}
+                                                        onChange={(e) => field.onChange(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                                                    />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+
+                                {additionalHolders.map((extra, idx) => (
+                                    <div key={idx} className="grid grid-cols-[1fr_90px_auto] items-center gap-2">
+                                        <Input
+                                            placeholder={`Adicional ${idx + 1} (ex: Esposa)`}
+                                            value={extra.name}
+                                            onChange={(e) => setAdditionalHolders(prev => prev.map((item, i) => i === idx ? { ...item, name: e.target.value } : item))}
+                                        />
+                                        <Input
+                                            placeholder="Final"
+                                            maxLength={4}
+                                            inputMode="numeric"
+                                            value={extra.last4}
+                                            onChange={(e) => setAdditionalHolders(prev => prev.map((item, i) => i === idx ? { ...item, last4: e.target.value.replace(/\D/g, "").slice(0, 4) } : item))}
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-sm"
+                                            aria-label="Remover adicional"
+                                            onClick={() => setAdditionalHolders(prev => prev.filter((_, i) => i !== idx))}
+                                        >
+                                            <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                        </Button>
+                                    </div>
+                                ))}
+
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setAdditionalHolders(prev => [...prev, { name: "", last4: "" }])}
+                                >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    Adicionar cartão adicional
+                                </Button>
+                            </fieldset>
                         )}
 
                         <FormField

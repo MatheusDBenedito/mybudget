@@ -199,5 +199,32 @@ describe('cash-flow builder', () => {
             });
             expect(result.summary.expenses).toEqual([0.3]);
         });
+
+        it('keeps the card row consolidated and attaches per-holder subRows when there are multiple holders', () => {
+            const result = buildCashFlow({
+                months: [
+                    month(11, [], [{
+                        id: 'c6',
+                        name: 'C6',
+                        dueDay: 15,
+                        total: 1500,
+                        holders: [
+                            { id: 'me', name: 'Matheus (titular)', total: 1000 },
+                            { id: 'wife', name: 'Esposa', total: 500 },
+                        ],
+                    }]),
+                ],
+                openingBalance: 0,
+                today,
+            });
+
+            const cardsSection = result.sections.find(s => s.key === 'CARDS');
+            expect(cardsSection?.rows[0].values).toEqual([1500]);
+            expect(cardsSection?.rows[0].subRows?.map(r => [r.label, r.values])).toEqual([
+                ['Matheus (titular)', [1000]],
+                ['Esposa', [500]],
+            ]);
+            expect(result.summary.expenses).toEqual([1500]);
+        });
     });
 });

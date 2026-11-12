@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { checkTransfer, defaultSettlementAccount, sortForPayment, transferableBalance, yieldLabel, type AccountLike } from "./accounts.ts";
+import { checkTransfer, computeUsdAccountMetrics, defaultSettlementAccount, isUsdAccount, sortForPayment, transferableBalance, yieldLabel, type AccountLike } from "./accounts.ts";
 
 const c6: AccountLike = { id: "c6", name: "C6", balance: 100, type: "CHECKING" };
 const bradesco: AccountLike = { id: "bradesco", name: "Bradesco", balance: 50, type: "CHECKING" };
@@ -85,5 +85,45 @@ describe("transfers", () => {
         const result = checkTransfer([mp, c6], { fromId: "c6", toId: "mp", amount: 150 });
         assert.equal(result.error, null);
         assert.match(result.warning ?? "", /negativo/);
+    });
+});
+
+describe("USD accounts", () => {
+    test("identifies USD accounts and computes fluctuating BRL value and purchase cost variation", () => {
+        const nomad: AccountLike = {
+            id: "nomad",
+            name: "Nomad Global",
+            currency: "USD",
+            balance: 580,
+            balanceUsd: 100,
+            investedBrl: 550,
+            purchaseExchangeRate: 5.5,
+            currentExchangeRate: 5.8,
+        };
+        assert.equal(isUsdAccount(nomad), true);
+        assert.equal(isUsdAccount(c6), false);
+
+        const metrics = computeUsdAccountMetrics({
+            balanceUsd: 100,
+            investedBrl: 550,
+            currentExchangeRate: 5.8,
+        });
+        assert.equal(metrics.purchaseExchangeRate, 5.5);
+        assert.equal(metrics.currentBalanceBrl, 580);
+        assert.equal(metrics.investedBrl, 550);
+        assert.equal(metrics.variationBrl, 30);
+        assert.equal(metrics.variationPct, 5.45);
+    });
+
+    test("derives investedBrl from purchaseExchangeRate when only rate is provided", () => {
+        const metrics = computeUsdAccountMetrics({
+            balanceUsd: 200,
+            purchaseExchangeRate: 5.25,
+            currentExchangeRate: 5.0,
+        });
+        assert.equal(metrics.investedBrl, 1050);
+        assert.equal(metrics.currentBalanceBrl, 1000);
+        assert.equal(metrics.variationBrl, -50);
+        assert.equal(metrics.variationPct, -4.76);
     });
 });

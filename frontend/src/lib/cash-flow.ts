@@ -10,6 +10,7 @@ export type CashFlowRow = {
     /** Part still pending per month (0 once received/paid) */
     open: number[];
     total: number;
+    subRows?: CashFlowRow[];
 };
 
 export type CashFlowSection = {

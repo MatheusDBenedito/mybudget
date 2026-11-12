@@ -25,6 +25,16 @@ export class InvestmentsController {
         return this.investmentsService.findAll();
     }
 
+    @Get('dividends')
+    findAllDividends() {
+        return this.investmentsService.findAllDividends();
+    }
+
+    @Post('dividends/sync')
+    syncAllDividends() {
+        return this.investmentsService.syncAllDividends(true);
+    }
+
     @Get(':id')
     findOne(@Param('id') id: string) {
         return this.investmentsService.findOne(id);

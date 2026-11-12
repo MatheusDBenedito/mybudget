@@ -4,15 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
     DEFAULT_LAYOUT,
-    moveBy,
     moveTo,
     normalizeLayout,
     readCachedLayout,
-    setWidth,
+    setBlockSize,
     writeCachedLayout,
     type DashboardBlockId,
     type DashboardLayoutItem,
-    type DashboardWidth,
 } from "@/lib/dashboard-layout";
 import { fetchDashboardLayout, saveDashboardLayout } from "@/lib/dashboard-layout-api";
 
@@ -92,16 +90,12 @@ export function useDashboardLayout() {
         scheduleSave(normalized);
     }, [scheduleSave]);
 
-    const move = useCallback((id: DashboardBlockId, direction: -1 | 1) => {
-        apply(moveBy(layoutRef.current, id, direction));
-    }, [apply]);
-
     const reorder = useCallback((activeId: DashboardBlockId, overId: DashboardBlockId) => {
         apply(moveTo(layoutRef.current, activeId, overId));
     }, [apply]);
 
-    const resize = useCallback((id: DashboardBlockId, width: DashboardWidth) => {
-        apply(setWidth(layoutRef.current, id, width));
+    const resizeBlock = useCallback((id: DashboardBlockId, size: { width?: number; height?: number }) => {
+        apply(setBlockSize(layoutRef.current, id, size));
     }, [apply]);
 
     const reset = useCallback(() => {
@@ -127,9 +121,8 @@ export function useDashboardLayout() {
         layout,
         editing,
         setEditing,
-        move,
         reorder,
-        resize,
+        resizeBlock,
         reset,
         finishEditing,
     };
