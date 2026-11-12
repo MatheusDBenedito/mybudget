@@ -6,6 +6,7 @@ export const DASHBOARD_BLOCK_IDS = [
     'spending',
     'cashflow-chart',
     'investments-chart',
+    'yields-projection',
 ] as const;
 
 export type DashboardBlockId = (typeof DASHBOARD_BLOCK_IDS)[number];

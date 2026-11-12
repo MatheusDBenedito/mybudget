@@ -172,6 +172,7 @@ myBudget/
 - **Investments, Dividends & Miles:**
   - `GET /investments`, `POST /investments`, `GET /investments/:id`, `PATCH /investments/:id`, `DELETE /investments/:id`
   - `GET /investments/dividends`, `POST /investments/dividends/sync`
+  - `GET /investments/projections` (`month`, `year`, `months` — projeção de 12 meses de dividendos programados a receber, média mensal de FIIs e retorno líquido de Renda Fixa)
   - `GET /miles`, `POST /miles`, `PATCH /miles/:id`, `DELETE /miles/:id`
 
 ---
@@ -269,6 +270,10 @@ Qualquer plano executado neste projeto deve preservar estas regras:
 - **Contas em Dólar (`USD`), Patrimônio Bruto vs. Líquido e Saldo Projetado Consolidado:**
   - `backend/src/accounts/accounts.service.ts`, `frontend/src/lib/accounts.ts`, `AccountManager.tsx` e `MoneyWhereCard.tsx`: suporte a contas em `USD` (`currency: "USD"`, `balanceUsd`, `investedBrl`, `purchaseExchangeRate`) com flutuação automática pelo `USD-BRL` atual; `MoneyWhereCard.tsx` exibe o valor bruto no topo, tooltip com detalhamento Bruto / Impostos / Líquido no canto superior direito e rodapé com subtração de impostos e valor líquido.
   - `backend/src/cash-flow/cash-flow.service.ts` e `cash-flow.builder.ts`: `openingBalance` (`SALDO` inicial do mês atual na linha **Saldo projetado**) soma o valor bruto de todas as contas + cofrinhos + investimentos e subtrai as despesas pendentes em aberto do mês atual (`openNet`).
+- **Projeção de Rendimentos e Dividendos — 12 Meses (`feat/projecao-rendimentos-e-dividendos`):**
+  - `backend/src/investments/projections/investments-projection.calculator.ts`, `investments.service.ts` e `investments.controller.ts`: endpoint `GET /investments/projections` projetando 12 meses de dividendos programados a receber (`PENDING`), média mensal de dividendos de FIIs (sem duplicar ativos já anunciados no mês) e retorno líquido mensal de Renda Fixa (descontado o IR regressivo por idade do lote e calculando o mês atual apenas pelos **dias úteis restantes** do mês via `countBusinessDays`, diminuindo diariamente à medida que os dias úteis passam).
+  - `backend/src/cash-flow/cash-flow.builder.ts`, `cash-flow.service.ts` e `frontend/src/components/cash-flow/CashFlowSheet.tsx`: linha expansível **Rendimentos e Dividendos** na seção **Recebimentos** da Visão Geral do Fluxo de Caixa com as 3 sub-linhas projetadas somando aos recebimentos e saldo projetado.
+  - `frontend/src/components/dashboard/YieldsProjectionCard.tsx`, `frontend/src/lib/dashboard-layout.ts` e `frontend/src/app/page.tsx`: novo card **Projeção de rendimentos — próximos 12 meses** no Resumo (`id: "yields-projection"`), exibindo também os dias úteis corridos vs. restantes do mês atual.
 
 
 

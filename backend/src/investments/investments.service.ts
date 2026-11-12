@@ -4,6 +4,7 @@ import { UpdateInvestmentDto } from './dto/update-investment.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { Investment } from '@prisma/client';
 import { countBusinessDays } from './business-days.util';
+import { calculateInvestmentsProjection, InvestmentsProjectionResult } from './projections/investments-projection.calculator';
 
 interface CdiDayRate {
     date: string;   // "DD/MM/YYYY"
@@ -924,5 +925,35 @@ export class InvestmentsService {
 
         this.dividendEventsCache.set(cacheKey, { fetchedAt: Date.now(), events: [] });
         return [];
+    }
+
+    async getProjections(
+        month?: number,
+        year?: number,
+        monthsCount = 12,
+        today = new Date(),
+        preloadedInvestments?: any[],
+    ): Promise<InvestmentsProjectionResult> {
+        const startMonth = month && month >= 1 && month <= 12 ? month : today.getMonth() + 1;
+        const startYear = year && year >= 2000 ? year : today.getFullYear();
+
+        const [investments, dividendsPayload] = await Promise.all([
+            preloadedInvestments ? Promise.resolve(preloadedInvestments) : this.findAll(),
+            this.findAllDividends(),
+        ]);
+
+        const latestCdiRate = this.cdiCache.length > 0
+            ? this.cdiCache[this.cdiCache.length - 1].rate
+            : this.CDI_DIARIO_FALLBACK;
+
+        return calculateInvestmentsProjection({
+            investments,
+            dividends: dividendsPayload.dividends as any,
+            startMonth,
+            startYear,
+            monthsCount,
+            today,
+            cdiDailyRate: latestCdiRate,
+        });
     }
 }
