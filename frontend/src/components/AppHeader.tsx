@@ -164,25 +164,25 @@ export function AppHeader() {
         <div className="mx-auto flex h-14 max-w-[1680px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
           <Link
             href="/"
-            className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+            className="flex shrink-0 items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
           >
             <span className="text-xl font-semibold tracking-tight">MyFinance</span>
             <CircleDollarSign className="h-5 w-5 text-positive-fill" aria-hidden="true" />
           </Link>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             {workspaces.length > 0 && activeWorkspace && (
               <Select value={activeWorkspace.id} onValueChange={switchWorkspace}>
                 <SelectTrigger
                   size="sm"
                   aria-label="Workspace ativo"
-                  className="h-9 border-white/20 bg-white/5 px-2.5 text-xs font-medium text-white shadow-none hover:bg-white/10 focus-visible:border-white/40 focus-visible:ring-white/20 sm:text-sm [&>svg]:text-white/75"
+                  className="h-9 max-w-[175px] border-white/20 bg-white/5 px-2.5 text-xs font-medium text-white shadow-none hover:bg-white/10 focus-visible:border-white/40 focus-visible:ring-white/20 sm:max-w-[230px] sm:text-sm [&>svg]:text-white/75"
                 >
-                  <Building2 className="hidden h-3.5 w-3.5 text-white/75 sm:block" aria-hidden="true" />
+                  <Building2 className="hidden h-3.5 w-3.5 shrink-0 text-white/75 sm:block" aria-hidden="true" />
                   <SelectValue>
-                    <span className="flex items-center gap-1.5">
-                      <span>{activeWorkspace.name}</span>
-                      <span className="rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate">{activeWorkspace.name}</span>
+                      <span className="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90">
                         {activeWorkspace.roleCode}
                       </span>
                     </span>
@@ -203,10 +203,10 @@ export function AppHeader() {
               </Select>
             )}
 
-            <div className="hidden items-center gap-1.5 text-xs text-white/80 md:flex">
-              <span>{user.name}</span>
+            <div className="hidden min-w-0 items-center gap-1.5 text-xs text-white/80 md:flex">
+              <span className="max-w-[140px] truncate">{user.name}</span>
               {user.isSuperAdmin && (
-                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                <span className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
                   Admin
                 </span>
               )}
@@ -251,7 +251,7 @@ export function AppHeader() {
 
       <nav className="border-b bg-card" aria-label="Navegação principal">
         <div className="mx-auto max-w-[1680px] px-4 sm:px-6 lg:px-8">
-          <ul className="-mb-px flex gap-6 overflow-x-auto sm:overflow-visible [scrollbar-width:none]">
+          <ul className="-mb-px flex gap-6 overflow-x-auto sm:flex-wrap sm:gap-x-5 sm:gap-y-0 sm:overflow-visible lg:flex-nowrap lg:gap-6 [scrollbar-width:none]">
             {visibleItems.map(({ href, label, icon: Icon, children }) => {
               const active = isActive(href);
               return (

@@ -167,7 +167,7 @@ function DashboardWidget({
             ref={setNodeRef}
             style={style}
             className={cn(
-                "w-full min-w-0 p-2 md:h-[var(--card-h)] md:w-[var(--card-w)]",
+                "w-full min-w-0 p-2 lg:h-[var(--card-h)] lg:w-[var(--card-w)]",
                 isDragging && "opacity-75",
             )}
             {...(editing ? attributes : {})}
@@ -192,7 +192,7 @@ function DashboardWidget({
                     role="separator"
                     aria-orientation="vertical"
                     aria-label={`Redimensionar largura de ${title}`}
-                    className="absolute inset-y-3 -right-1 z-10 hidden w-2.5 cursor-ew-resize items-center justify-center md:flex"
+                    className="absolute inset-y-3 -right-1 z-10 hidden w-2.5 cursor-ew-resize items-center justify-center lg:flex"
                 >
                     <span
                         className={cn(
@@ -208,7 +208,7 @@ function DashboardWidget({
                     role="separator"
                     aria-orientation="horizontal"
                     aria-label={`Redimensionar altura de ${title}`}
-                    className="absolute inset-x-3 -bottom-1 z-10 hidden h-2.5 cursor-ns-resize items-center justify-center md:flex"
+                    className="absolute inset-x-3 -bottom-1 z-10 hidden h-2.5 cursor-ns-resize items-center justify-center lg:flex"
                 >
                     <span
                         className={cn(
@@ -222,7 +222,7 @@ function DashboardWidget({
                 <div
                     onPointerDown={startResize("corner")}
                     aria-label={`Redimensionar largura e altura de ${title}`}
-                    className="absolute -bottom-1 -right-1 z-20 hidden h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 md:flex"
+                    className="absolute -bottom-1 -right-1 z-20 hidden h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 lg:flex"
                 >
                     <span
                         className={cn(
