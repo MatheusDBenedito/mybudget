@@ -35,6 +35,7 @@
     "google-auth-library": "^11.3.4",
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^2.16.105",
+    "pluggy-sdk": "^0.93.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },

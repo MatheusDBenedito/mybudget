@@ -7,10 +7,23 @@ import { AppModule } from './app.module';
  * Configures global CORS and validation pipes on a NestJS application instance.
  */
 export function configureNestApp(app: INestApplication): void {
-  const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+  const vercelOrigins = [
+    process.env.VERCEL_URL,
+    process.env.VERCEL_BRANCH_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+  ]
+    .filter((host): host is string => Boolean(host))
+    .map((host) => (host.startsWith('http') ? host : `https://${host}`));
+
+  const allowedOrigins = Array.from(
+    new Set([
+      ...(process.env.FRONTEND_URL || 'http://localhost:3000')
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+      ...vercelOrigins,
+    ]),
+  );
 
   app.enableCors({
     origin: allowedOrigins,
