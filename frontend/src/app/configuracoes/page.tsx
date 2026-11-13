@@ -9,6 +9,7 @@ import { CardManager } from "@/components/CardManager";
 import { AccountManager } from "@/components/AccountManager";
 import { CategoryManager } from "@/components/CategoryManager";
 import { WorkspaceManager } from "@/components/WorkspaceManager";
+import { OpenFinanceManager } from "@/components/OpenFinanceManager";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/Panel";
 
@@ -81,7 +82,14 @@ function SettingsContent() {
                 </TabsContent>
 
                 {user?.isSuperAdmin && (
-                    <TabsContent value="integracoes" className="focus-visible:outline-none">
+                    <TabsContent value="integracoes" className="space-y-6 focus-visible:outline-none">
+                        <Panel title="Open Finance (Pluggy — Uso Pessoal / Super Admin)" icon={Link2}>
+                            <p className="mb-4 text-sm text-muted-foreground">
+                                Conecte suas contas bancárias via Pluggy (Sandbox ou Meu Pluggy) exclusivamente para o seu usuário administrador.
+                            </p>
+                            <OpenFinanceManager />
+                        </Panel>
+
                         <Panel title="Integração com B3 (brapi)" icon={Link2}>
                             <p className="mb-4 text-sm text-muted-foreground">
                                 Configure a atualização automática de preços para seus ativos de renda variável.
