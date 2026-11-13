@@ -18,7 +18,7 @@
 |---|---|
 | **Backend** | NestJS 11 (`@nestjs/core` ^11.0.1), TypeScript ^5.7.3, Prisma ORM (`@prisma/client` / `prisma` ^6.19.2), `class-validator`, `class-transformer`, `date-fns`, `pdf-parse` / `pdfjs-dist`, Jest 30 |
 | **Banco de Dados** | PostgreSQL 15 via Docker (`docker-compose.yml`) |
-| **Frontend** | Next.js 16.1.6 (App Router, Turbopack), React 19.2.3, TypeScript ^5, Tailwind CSS v4 (`@tailwindcss/postcss` ^4), shadcn/ui + `radix-ui`, `lucide-react`, `recharts`, `react-hook-form` + `zod`, `react-number-format`, `sonner` |
+| **Frontend** | Next.js 16.4.6 (App Router, Turbopack), React 19.2.3, TypeScript ^5, Tailwind CSS v4 (`@tailwindcss/postcss` ^4), shadcn/ui + `radix-ui`, `lucide-react`, `recharts`, `react-hook-form` + `zod`, `react-number-format`, `sonner` |
 | **Testes** | Backend: Jest (`*.spec.ts`) · Frontend unitários: `node --test` (Node 24+ com TS nativo) · E2E: Cypress 15 |
 
 ---
