@@ -1,29 +1,35 @@
 "use client";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Tags, CreditCard, Landmark, Link2, ExternalLink, Key } from "lucide-react";
+import { Tags, CreditCard, Landmark, Link2, ExternalLink, Key, Building2 } from "lucide-react";
+import { useAuth } from "@/components/AuthProvider";
 import { CardManager } from "@/components/CardManager";
 import { AccountManager } from "@/components/AccountManager";
 import { CategoryManager } from "@/components/CategoryManager";
+import { WorkspaceManager } from "@/components/WorkspaceManager";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/Panel";
 
 const TABS = [
-    { value: "categorias", label: "Categorias", icon: Tags },
-    { value: "cartoes", label: "Cartões", icon: CreditCard },
-    { value: "contas", label: "Contas", icon: Landmark },
-    { value: "integracoes", label: "Integrações", icon: Link2 },
+    { value: "workspaces", label: "Workspaces", icon: Building2, superAdminOnly: false },
+    { value: "categorias", label: "Categorias", icon: Tags, superAdminOnly: false },
+    { value: "cartoes", label: "Cartões", icon: CreditCard, superAdminOnly: false },
+    { value: "contas", label: "Contas", icon: Landmark, superAdminOnly: false },
+    { value: "integracoes", label: "Integrações", icon: Link2, superAdminOnly: true },
 ];
 
 export default function SettingsPage() {
+    const { user } = useAuth();
+    const visibleTabs = TABS.filter((tab) => !tab.superAdminOnly || user?.isSuperAdmin);
+
     return (
         <div className="space-y-6">
-            <PageHeader title="Configurações" description="Gerencie suas categorias, cartões, contas e integrações." />
+            <PageHeader title="Configurações" description="Gerencie seus workspaces, membros, categorias, cartões e contas." />
 
-            <Tabs defaultValue="categorias" className="gap-6">
+            <Tabs defaultValue="workspaces" className="gap-6">
                 <div className="overflow-x-auto border-b">
                     <TabsList variant="line" className="h-11 items-stretch gap-6 p-0">
-                        {TABS.map(({ value, label, icon: Icon }) => (
+                        {visibleTabs.map(({ value, label, icon: Icon }) => (
                             <TabsTrigger
                                 key={value}
                                 value={value}
@@ -35,6 +41,13 @@ export default function SettingsPage() {
                         ))}
                     </TabsList>
                 </div>
+
+                <TabsContent value="workspaces" className="focus-visible:outline-none">
+                    <Panel title="Workspaces & Compartilhamento" icon={Building2}>
+                        <p className="mb-4 text-sm text-muted-foreground">Crie grupos/famílias, alterne entre workspaces e convide membros com perfis RBAC.</p>
+                        <WorkspaceManager />
+                    </Panel>
+                </TabsContent>
 
                 <TabsContent value="categorias" className="focus-visible:outline-none">
                     <Panel title="Categorias" icon={Tags}>
@@ -57,47 +70,49 @@ export default function SettingsPage() {
                     </Panel>
                 </TabsContent>
 
-                <TabsContent value="integracoes" className="focus-visible:outline-none">
-                    <Panel title="Integração com B3 (brapi)" icon={Link2}>
-                        <p className="mb-4 text-sm text-muted-foreground">
-                            Configure a atualização automática de preços para seus ativos de renda variável.
-                        </p>
-                        <ol className="space-y-4">
-                            <li className="flex items-start gap-4 rounded-lg border p-4">
-                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-                                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                                </span>
-                                <div className="text-sm">
-                                    <p className="mb-1 font-medium">Passo 1: Obter o token</p>
-                                    <p className="text-muted-foreground">Para atualizar os preços automaticamente, você precisa de um token gratuito do brapi.dev.</p>
-                                    <a
-                                        href="https://brapi.dev/"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="mt-2 inline-flex items-center gap-1 font-medium underline underline-offset-4 hover:text-muted-foreground"
-                                    >
-                                        Criar conta no brapi.dev <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                                    </a>
-                                </div>
-                            </li>
-                            <li className="flex items-start gap-4 rounded-lg border p-4">
-                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-                                    <Key className="h-4 w-4" aria-hidden="true" />
-                                </span>
-                                <div className="text-sm">
-                                    <p className="mb-1 font-medium">Passo 2: Configurar no sistema</p>
-                                    <p className="text-muted-foreground">
-                                        No momento, a configuração do token é feita através do arquivo <code className="rounded bg-muted px-1">.env</code> na raiz do projeto.
-                                    </p>
-                                    <div className="mt-3 rounded-md bg-header p-3 font-mono text-xs text-header-foreground">
-                                        BRAPI_TOKEN=&quot;seu_token_aqui&quot;
+                {user?.isSuperAdmin && (
+                    <TabsContent value="integracoes" className="focus-visible:outline-none">
+                        <Panel title="Integração com B3 (brapi)" icon={Link2}>
+                            <p className="mb-4 text-sm text-muted-foreground">
+                                Configure a atualização automática de preços para seus ativos de renda variável.
+                            </p>
+                            <ol className="space-y-4">
+                                <li className="flex items-start gap-4 rounded-lg border p-4">
+                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                                        <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                                    </span>
+                                    <div className="text-sm">
+                                        <p className="mb-1 font-medium">Passo 1: Obter o token</p>
+                                        <p className="text-muted-foreground">Para atualizar os preços automaticamente, você precisa de um token gratuito do brapi.dev.</p>
+                                        <a
+                                            href="https://brapi.dev/"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="mt-2 inline-flex items-center gap-1 font-medium underline underline-offset-4 hover:text-muted-foreground"
+                                        >
+                                            Criar conta no brapi.dev <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                                        </a>
                                     </div>
-                                    <p className="mt-3 text-muted-foreground">Após adicionar o token, reinicie o servidor do backend para aplicar as mudanças.</p>
-                                </div>
-                            </li>
-                        </ol>
-                    </Panel>
-                </TabsContent>
+                                </li>
+                                <li className="flex items-start gap-4 rounded-lg border p-4">
+                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                                        <Key className="h-4 w-4" aria-hidden="true" />
+                                    </span>
+                                    <div className="text-sm">
+                                        <p className="mb-1 font-medium">Passo 2: Configurar no sistema</p>
+                                        <p className="text-muted-foreground">
+                                            No momento, a configuração do token é feita através do arquivo <code className="rounded bg-muted px-1">.env</code> na raiz do projeto.
+                                        </p>
+                                        <div className="mt-3 rounded-md bg-header p-3 font-mono text-xs text-header-foreground">
+                                            BRAPI_TOKEN=&quot;seu_token_aqui&quot;
+                                        </div>
+                                        <p className="mt-3 text-muted-foreground">Após adicionar o token, reinicie o servidor do backend para aplicar as mudanças.</p>
+                                    </div>
+                                </li>
+                            </ol>
+                        </Panel>
+                    </TabsContent>
+                )}
             </Tabs>
         </div>
     );

@@ -15,8 +15,9 @@ const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curren
 export class TransfersService {
     constructor(private readonly prisma: PrismaService) { }
 
-    list(limit = 30) {
+    list(workspaceId: string, limit = 30) {
         return this.prisma.accountTransfer.findMany({
+            where: { workspaceId },
             orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
             take: limit,
             include: {
@@ -26,19 +27,23 @@ export class TransfersService {
         });
     }
 
-    async create(dto: CreateTransferDto) {
+    async create(workspaceId: string, dto: CreateTransferDto) {
         if (dto.fromAccountId === dto.toAccountId) {
             throw new BadRequestException('Escolha contas diferentes para origem e destino.');
         }
         const amount = round2(dto.amount);
         const date = this.resolveDate(dto.date);
 
-        const [from, to] = await Promise.all([this.account(dto.fromAccountId), this.account(dto.toAccountId)]);
+        const [from, to] = await Promise.all([
+            this.account(workspaceId, dto.fromAccountId),
+            this.account(workspaceId, dto.toAccountId),
+        ]);
         this.ensureAvailable(from, amount, 'origem');
 
         const [transfer] = await this.prisma.$transaction([
             this.prisma.accountTransfer.create({
                 data: {
+                    workspaceId,
                     fromAccountId: from.id,
                     toAccountId: to.id,
                     amount,
@@ -53,11 +58,11 @@ export class TransfersService {
     }
 
     /** Undo: the money goes back to the source account. */
-    async remove(id: string) {
-        const transfer = await this.prisma.accountTransfer.findUnique({ where: { id } });
+    async remove(workspaceId: string, id: string) {
+        const transfer = await this.prisma.accountTransfer.findFirst({ where: { id, workspaceId } });
         if (!transfer) throw new NotFoundException(`Transferência ${id} não encontrada`);
 
-        const to = await this.account(transfer.toAccountId);
+        const to = await this.account(workspaceId, transfer.toAccountId);
         this.ensureAvailable(to, transfer.amount, 'destino');
 
         await this.prisma.$transaction([
@@ -68,9 +73,9 @@ export class TransfersService {
         return transfer;
     }
 
-    private async account(id: string) {
-        const account = await this.prisma.account.findUnique({ where: { id }, include: { pots: { select: { balance: true } } } });
-        if (!account) throw new BadRequestException('Conta informada não encontrada.');
+    private async account(workspaceId: string, id: string) {
+        const account = await this.prisma.account.findFirst({ where: { id, workspaceId }, include: { pots: { select: { balance: true } } } });
+        if (!account) throw new BadRequestException('Conta informada não encontrada neste workspace.');
         return account;
     }
 

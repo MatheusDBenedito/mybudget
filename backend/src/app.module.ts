@@ -1,7 +1,13 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { WorkspaceRbacGuard } from './auth/guards/workspace-rbac.guard';
+import { WorkspacesModule } from './workspaces/workspaces.module';
+import { AdminRbacModule } from './admin-rbac/admin-rbac.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { CardTransactionsModule } from './card-transactions/card-transactions.module';
 import { RecurringExpensesModule } from './recurring-expenses/recurring-expenses.module';
@@ -17,8 +23,30 @@ import { DashboardLayoutModule } from './dashboard-layout/dashboard-layout.modul
 import { CardHoldersModule } from './card-holders/card-holders.module';
 
 @Module({
-  imports: [PrismaModule, TransactionsModule, CardTransactionsModule, RecurringExpensesModule, ReportsModule, CreditCardsModule, CardHoldersModule, SeedModule, CategoriesModule, AccountsModule, InvestmentsModule, MilesModule, CashFlowModule, DashboardLayoutModule],
-  controllers: [AppController],
-  providers: [AppService],
+    imports: [
+        PrismaModule,
+        AuthModule,
+        WorkspacesModule,
+        AdminRbacModule,
+        TransactionsModule,
+        CardTransactionsModule,
+        RecurringExpensesModule,
+        ReportsModule,
+        CreditCardsModule,
+        CardHoldersModule,
+        SeedModule,
+        CategoriesModule,
+        AccountsModule,
+        InvestmentsModule,
+        MilesModule,
+        CashFlowModule,
+        DashboardLayoutModule,
+    ],
+    controllers: [AppController],
+    providers: [
+        AppService,
+        { provide: APP_GUARD, useClass: JwtAuthGuard },
+        { provide: APP_GUARD, useClass: WorkspaceRbacGuard },
+    ],
 })
 export class AppModule {}

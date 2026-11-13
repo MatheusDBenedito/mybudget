@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Plus, ArrowRight, ChartColumn, ChartPie, Check, Pencil, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/components/AuthProvider";
 import { TransactionModal } from "@/components/TransactionModal";
 import { Panel } from "@/components/Panel";
 import { PageHeader, MonthNavigator } from "@/components/PageHeader";
@@ -51,6 +52,9 @@ export default function DashboardPage() {
   const [cashFlow, setCashFlow] = useState<CashFlowData | null>(null);
   const [projections, setProjections] = useState<InvestmentsProjectionData | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const { hasPermission, hasAnyPermission } = useAuth();
+  const canEditResumo = hasPermission("edit:resumo_layout");
+  const canCreateTx = hasAnyPermission(["create:despesa", "create:receita"]);
   const {
     layout,
     editing,
@@ -171,7 +175,7 @@ export default function DashboardPage() {
         actions={
           <>
             <MonthNavigator month={month} year={year} onPrev={goToPrevMonth} onNext={goToNextMonth} />
-            {editing ? (
+            {canEditResumo && (editing ? (
               <>
                 <Button
                   variant="outline"
@@ -193,13 +197,15 @@ export default function DashboardPage() {
                 <Pencil className="h-4 w-4" />
                 Personalizar
               </Button>
+            ))}
+            {canCreateTx && (
+              <TransactionModal onSuccess={() => setReloadKey(k => k + 1)}>
+                <Button>
+                  <Plus className="h-4 w-4" />
+                  Adicionar
+                </Button>
+              </TransactionModal>
             )}
-            <TransactionModal onSuccess={() => setReloadKey(k => k + 1)}>
-              <Button>
-                <Plus className="h-4 w-4" />
-                Adicionar
-              </Button>
-            </TransactionModal>
           </>
         }
       />

@@ -99,8 +99,8 @@ export class InvestmentsService {
 
     constructor(private prisma: PrismaService) { }
 
-    async create(createInvestmentDto: CreateInvestmentDto) {
-        const data: any = { ...createInvestmentDto };
+    async create(workspaceId: string, createInvestmentDto: CreateInvestmentDto) {
+        const data: any = { ...createInvestmentDto, workspaceId };
         this.applyUsStockInvestedAmount(data);
         this.applyCryptoInvestedAmount(data);
         if (!data.currentValue) {
@@ -119,8 +119,9 @@ export class InvestmentsService {
         return created;
     }
 
-    async findAll() {
+    async findAll(workspaceId: string) {
         const investments = await this.prisma.investment.findMany({
+            where: { workspaceId },
             orderBy: { createdAt: 'desc' },
         });
 
@@ -159,9 +160,9 @@ export class InvestmentsService {
         return Promise.all(investments.map(inv => this.enrichInvestment(inv)));
     }
 
-    async findOne(id: string) {
-        const investment = await this.prisma.investment.findUnique({
-            where: { id },
+    async findOne(workspaceId: string, id: string) {
+        const investment = await this.prisma.investment.findFirst({
+            where: { id, workspaceId },
         });
         if (!investment) {
             throw new NotFoundException(`Investment with ID ${id} not found`);
@@ -177,8 +178,8 @@ export class InvestmentsService {
         return this.enrichInvestment(investment);
     }
 
-    async update(id: string, updateInvestmentDto: UpdateInvestmentDto) {
-        const existing = await this.prisma.investment.findUnique({ where: { id } });
+    async update(workspaceId: string, id: string, updateInvestmentDto: UpdateInvestmentDto) {
+        const existing = await this.prisma.investment.findFirst({ where: { id, workspaceId } });
         if (!existing) {
             throw new NotFoundException(`Investment with ID ${id} not found`);
         }
@@ -258,8 +259,8 @@ export class InvestmentsService {
         }
     }
 
-    async remove(id: string) {
-        await this.findOne(id); // Ensure exists
+    async remove(workspaceId: string, id: string) {
+        await this.findOne(workspaceId, id); // Ensure exists in workspace
         return this.prisma.investment.delete({
             where: { id },
         });
@@ -769,18 +770,20 @@ export class InvestmentsService {
         );
     }
 
-    async findAllDividends() {
+    async findAllDividends(workspaceId: string) {
         const investments = await this.prisma.investment.findMany({
+            where: { workspaceId },
             orderBy: { investmentDate: 'asc' },
         });
 
         const eligible = investments.filter(i => this.isDividendEligible(i));
         const unsynced = eligible.filter(i => !this.syncedInvestmentIds.has(i.id));
         if (unsynced.length > 0) {
-            await this.syncAllDividends(false);
+            await this.syncAllDividends(workspaceId, false);
         }
 
         const dividends = await this.prisma.investmentDividend.findMany({
+            where: { investment: { workspaceId } },
             include: {
                 investment: {
                     select: {
@@ -813,13 +816,15 @@ export class InvestmentsService {
         };
     }
 
-    async syncAllDividends(force = false) {
+    async syncAllDividends(workspaceId: string, force = false) {
         if (force) {
             this.dividendEventsCache.clear();
             this.syncedInvestmentIds.clear();
         }
 
-        const investments = await this.prisma.investment.findMany();
+        const investments = await this.prisma.investment.findMany({
+            where: { workspaceId },
+        });
         const eligible = investments.filter(i => this.isDividendEligible(i));
 
         if (eligible.some(i => i.type === 'US_STOCK')) {
@@ -830,7 +835,7 @@ export class InvestmentsService {
             await this.syncDividendsForInvestment(inv);
         }
 
-        return this.findAllDividends();
+        return this.findAllDividends(workspaceId);
     }
 
     async syncDividendsForInvestment(inv: Investment): Promise<void> {
@@ -928,6 +933,7 @@ export class InvestmentsService {
     }
 
     async getProjections(
+        workspaceId: string,
         month?: number,
         year?: number,
         monthsCount = 12,
@@ -938,8 +944,8 @@ export class InvestmentsService {
         const startYear = year && year >= 2000 ? year : today.getFullYear();
 
         const [investments, dividendsPayload] = await Promise.all([
-            preloadedInvestments ? Promise.resolve(preloadedInvestments) : this.findAll(),
-            this.findAllDividends(),
+            preloadedInvestments ? Promise.resolve(preloadedInvestments) : this.findAll(workspaceId),
+            this.findAllDividends(workspaceId),
         ]);
 
         const latestCdiRate = this.cdiCache.length > 0

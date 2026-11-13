@@ -8,9 +8,9 @@ import { addMonths } from 'date-fns';
 export class RecurringExpensesService {
     constructor(private readonly prisma: PrismaService) { }
 
-    async create(createDto: CreateRecurringExpenseDto) {
+    async create(workspaceId: string, createDto: CreateRecurringExpenseDto) {
         return this.prisma.recurringExpense.create({
-            data: createDto,
+            data: { ...createDto, workspaceId },
         });
     }
 
@@ -43,6 +43,7 @@ export class RecurringExpensesService {
             const transactionDate = new Date(processingYear, processingMonth, finalBillingDay);
 
             return {
+                workspaceId: sub.workspaceId,
                 description: sub.description,
                 amount: sub.amount,
                 date: transactionDate,

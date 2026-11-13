@@ -9,18 +9,19 @@ const CARD_SELECT = { select: { id: true, name: true, color: true } } as const;
 export class MilesService {
     constructor(private readonly prisma: PrismaService) { }
 
-    async create(dto: CreateMilesEntryDto) {
+    async create(workspaceId: string, dto: CreateMilesEntryDto) {
         const creditCardId = dto.creditCardId || null;
         const origin = dto.origin?.trim() || null;
         if (!creditCardId && !origin) {
             throw new BadRequestException('Informe a origem dos pontos (um cartão ou uma descrição).');
         }
         if (creditCardId) {
-            await this.ensureCardExists(creditCardId);
+            await this.ensureCardExists(workspaceId, creditCardId);
         }
 
         return this.prisma.milesEntry.create({
             data: {
+                workspaceId,
                 program: dto.program.trim(),
                 points: dto.points,
                 status: dto.status,
@@ -35,15 +36,16 @@ export class MilesService {
         });
     }
 
-    findAll() {
+    findAll(workspaceId: string) {
         return this.prisma.milesEntry.findMany({
+            where: { workspaceId },
             orderBy: [{ expectedCreditDate: 'asc' }, { createdAt: 'desc' }],
             include: { creditCard: CARD_SELECT },
         });
     }
 
-    async update(id: string, dto: UpdateMilesEntryDto) {
-        const existing = await this.prisma.milesEntry.findUnique({ where: { id } });
+    async update(workspaceId: string, id: string, dto: UpdateMilesEntryDto) {
+        const existing = await this.prisma.milesEntry.findFirst({ where: { id, workspaceId } });
         if (!existing) {
             throw new NotFoundException(`Lançamento de milhas ${id} não encontrado.`);
         }
@@ -55,7 +57,7 @@ export class MilesService {
             throw new BadRequestException('Informe a origem dos pontos (um cartão ou uma descrição).');
         }
         if (dto.creditCardId) {
-            await this.ensureCardExists(dto.creditCardId);
+            await this.ensureCardExists(workspaceId, dto.creditCardId);
         }
 
         return this.prisma.milesEntry.update({
@@ -75,18 +77,18 @@ export class MilesService {
         });
     }
 
-    async remove(id: string) {
-        const existing = await this.prisma.milesEntry.findUnique({ where: { id } });
+    async remove(workspaceId: string, id: string) {
+        const existing = await this.prisma.milesEntry.findFirst({ where: { id, workspaceId } });
         if (!existing) {
             throw new NotFoundException(`Lançamento de milhas ${id} não encontrado.`);
         }
         return this.prisma.milesEntry.delete({ where: { id } });
     }
 
-    private async ensureCardExists(creditCardId: string) {
-        const card = await this.prisma.creditCard.findUnique({ where: { id: creditCardId }, select: { id: true } });
+    private async ensureCardExists(workspaceId: string, creditCardId: string) {
+        const card = await this.prisma.creditCard.findFirst({ where: { id: creditCardId, workspaceId }, select: { id: true } });
         if (!card) {
-            throw new BadRequestException('Cartão de origem não encontrado.');
+            throw new BadRequestException('Cartão de origem não encontrado neste workspace.');
         }
     }
 }

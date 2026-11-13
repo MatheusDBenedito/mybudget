@@ -11,10 +11,10 @@ import { randomUUID } from 'crypto';
 export class CardTransactionsService {
     constructor(private readonly prisma: PrismaService) { }
 
-    async create(createDto: CreateCardTransactionDto) {
+    async create(workspaceId: string, createDto: CreateCardTransactionDto) {
         // 1. Fetch the credit card details to get closingDay and dueDay
-        const creditCard = await this.prisma.creditCard.findUnique({
-            where: { id: createDto.creditCardId },
+        const creditCard = await this.prisma.creditCard.findFirst({
+            where: { id: createDto.creditCardId, workspaceId },
         });
 
         if (!creditCard) {
@@ -53,6 +53,7 @@ export class CardTransactionsService {
             );
 
             transactionRecords.push({
+                workspaceId,
                 description: installmentsCount > 1 ? `${createDto.description} (${i + 1}/${installmentsCount})` : createDto.description,
                 amount: distributedAmounts[i],
                 date: basePurchaseDate, // Keep the original true purchase date for logging
@@ -89,7 +90,7 @@ export class CardTransactionsService {
      *   → Creates installment 5 on PDF date + 1 month (next invoice)
      *   → Does NOT touch installments 1, 2, 3 (already paid in past invoices)
      */
-    async createFromPdfImport(opts: {
+    async createFromPdfImport(workspaceId: string, opts: {
         description: string;
         /** Per-installment amount as shown in the PDF */
         amount: number;
@@ -103,8 +104,8 @@ export class CardTransactionsService {
         /** Total installment count (e.g. 5 for "Parcela 4/5") */
         installmentsTotal: number | null;
     }) {
-        const creditCard = await this.prisma.creditCard.findUnique({
-            where: { id: opts.creditCardId },
+        const creditCard = await this.prisma.creditCard.findFirst({
+            where: { id: opts.creditCardId, workspaceId },
         });
         if (!creditCard) {
             throw new NotFoundException(`Credit Card ${opts.creditCardId} not found`);
@@ -135,6 +136,7 @@ export class CardTransactionsService {
             const label = total > 1 ? `${opts.description} (${installmentNumber}/${total})` : opts.description;
 
             records.push({
+                workspaceId,
                 description: label,
                 amount: opts.amount, // PDF already shows per-installment amount — use as-is
                 date: baseDate,
@@ -153,9 +155,9 @@ export class CardTransactionsService {
         );
     }
 
-    async simulate(createDto: CreateCardTransactionDto) {
-        const creditCard = await this.prisma.creditCard.findUnique({
-            where: { id: createDto.creditCardId },
+    async simulate(workspaceId: string, createDto: CreateCardTransactionDto) {
+        const creditCard = await this.prisma.creditCard.findFirst({
+            where: { id: createDto.creditCardId, workspaceId },
         });
 
         if (!creditCard) {
@@ -191,12 +193,13 @@ export class CardTransactionsService {
         };
     }
 
-    async findAllByInvoice(creditCardId: string | undefined, month: number, year: number) {
+    async findAllByInvoice(workspaceId: string, creditCardId: string | undefined, month: number, year: number) {
         const startDate = new Date(year, month - 1, 1);
         const endDate = new Date(year, month, 1);
 
         const transactions = await this.prisma.cardTransaction.findMany({
             where: {
+                workspaceId,
                 ...(creditCardId ? { creditCardId } : {}),
                 OR: [
                     {
@@ -257,18 +260,18 @@ export class CardTransactionsService {
         return projected.filter(tx => tx !== null);
     }
 
-    async getInvoiceSummary(month: number, year: number) {
-        const transactions = await this.findAllByInvoice(undefined, month, year);
+    async getInvoiceSummary(workspaceId: string, month: number, year: number) {
+        const transactions = await this.findAllByInvoice(workspaceId, undefined, month, year);
         const totalAmount = transactions.reduce((acc, curr) => acc + curr.amount, 0);
         return { totalAmount };
     }
 
-    async remove(id: string, mode: 'SINGLE' | 'FUTURE' | 'ALL') {
+    async remove(workspaceId: string, id: string, mode: 'SINGLE' | 'FUTURE' | 'ALL') {
         // Remove qualquer sufixo virtual inserido pelo frontend para despesas fixas
         const realId = id.split('_virtual_')[0];
 
-        const transaction = await this.prisma.cardTransaction.findUnique({
-            where: { id: realId },
+        const transaction = await this.prisma.cardTransaction.findFirst({
+            where: { id: realId, workspaceId },
         });
 
         if (!transaction) {
@@ -308,6 +311,7 @@ export class CardTransactionsService {
         if (mode === 'ALL') {
             return this.prisma.cardTransaction.deleteMany({
                 where: {
+                    workspaceId,
                     installmentGroupId: transaction.installmentGroupId,
                 },
             });
@@ -318,6 +322,7 @@ export class CardTransactionsService {
             // pertencentes ao mesmo grupo de parcelamento (compra original).
             return this.prisma.cardTransaction.deleteMany({
                 where: {
+                    workspaceId,
                     installmentGroupId: transaction.installmentGroupId,
                     invoiceDate: {
                         gte: transaction.invoiceDate,
@@ -329,12 +334,12 @@ export class CardTransactionsService {
         throw new BadRequestException('Invalid deletion mode.');
     }
 
-    async update(id: string, updateDto: UpdateCardTransactionDto) {
+    async update(workspaceId: string, id: string, updateDto: UpdateCardTransactionDto) {
         // Remove qualquer sufixo virtual inserido pelo frontend para despesas fixas
         const realId = id.split('_virtual_')[0];
 
-        const transaction = await this.prisma.cardTransaction.findUnique({
-            where: { id: realId },
+        const transaction = await this.prisma.cardTransaction.findFirst({
+            where: { id: realId, workspaceId },
             include: { creditCard: true },
         });
 
@@ -342,6 +347,10 @@ export class CardTransactionsService {
 
         const targetCardId = updateDto.creditCardId ?? transaction.creditCardId;
         const cardChanged = !!updateDto.creditCardId && updateDto.creditCardId !== transaction.creditCardId;
+        if (cardChanged) {
+            const nextCard = await this.prisma.creditCard.findFirst({ where: { id: targetCardId, workspaceId }, select: { id: true } });
+            if (!nextCard) throw new NotFoundException('Cartão de destino não encontrado neste workspace.');
+        }
 
         let cardHolderId = transaction.cardHolderId;
         if (updateDto.cardHolderId) {

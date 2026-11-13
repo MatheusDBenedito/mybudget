@@ -111,7 +111,7 @@ export class AccountsService {
     };
   }
 
-  async create(createAccountDto: CreateAccountDto) {
+  async create(workspaceId: string, createAccountDto: CreateAccountDto) {
     const isUsd = createAccountDto.currency === 'USD';
     const effectiveType = isUsd ? 'CHECKING' : (createAccountDto.type ?? 'CHECKING');
     const yieldFields = this.resolveYieldFields(effectiveType, isUsd ? null : createAccountDto.cdiPercentage, null);
@@ -119,6 +119,7 @@ export class AccountsService {
 
     return this.prisma.account.create({
       data: {
+        workspaceId,
         name: createAccountDto.name.trim(),
         ...currencyFields,
         ...yieldFields,
@@ -151,10 +152,10 @@ export class AccountsService {
    * free balance (total balance minus what is kept in pots).
    * For USD accounts, balance fluctuates with today's live USD-BRL rate while preserving investedBrl and purchaseExchangeRate.
    */
-  async findAll() {
+  async findAll(workspaceId: string) {
     const today = new Date();
     const [accounts, totals] = await Promise.all([
-      this.prisma.account.findMany({ orderBy: { name: 'asc' }, include: { pots: { orderBy: { createdAt: 'asc' } } } }),
+      this.prisma.account.findMany({ where: { workspaceId }, orderBy: { name: 'asc' }, include: { pots: { orderBy: { createdAt: 'asc' } } } }),
       this.yields.monthTotals(today.getFullYear(), today.getMonth() + 1),
     ]);
 
@@ -242,8 +243,8 @@ export class AccountsService {
     });
   }
 
-  async lots(id: string) {
-    await this.findOne(id);
+  async lots(workspaceId: string, id: string) {
+    await this.findOne(workspaceId, id);
     return this.yields.lots(id);
   }
 
@@ -256,8 +257,8 @@ export class AccountsService {
    * Recalculates every yield of a yielding account from `from` (yyyy-mm-dd) — by default from the earliest start
    * among the account and its cofrinhos. Credits from that day on are reversed and replayed.
    */
-  async recomputeYields(id: string, from?: string) {
-    const account = await this.prisma.account.findUnique({ where: { id }, include: { pots: { select: { createdAt: true } } } });
+  async recomputeYields(workspaceId: string, id: string, from?: string) {
+    const account = await this.prisma.account.findFirst({ where: { id, workspaceId }, include: { pots: { select: { createdAt: true } } } });
     if (!account) throw new NotFoundException(`Account with ID ${id} not found`);
     if (account.type !== 'YIELDING' || !account.yieldSince) throw new BadRequestException('A conta não é remunerada.');
     const starts = [account.yieldSince, ...account.pots.map(p => p.createdAt)];
@@ -266,14 +267,14 @@ export class AccountsService {
     return this.yields.recomputeFrom(id, fromKey);
   }
 
-  async yieldHistory(id: string) {
-    await this.findOne(id);
+  async yieldHistory(workspaceId: string, id: string) {
+    await this.findOne(workspaceId, id);
     return this.yields.history(id);
   }
 
-  async findOne(id: string) {
-    const account = await this.prisma.account.findUnique({
-      where: { id },
+  async findOne(workspaceId: string, id: string) {
+    const account = await this.prisma.account.findFirst({
+      where: { id, workspaceId },
     });
 
     if (!account) {
@@ -283,9 +284,9 @@ export class AccountsService {
     return account;
   }
 
-  async update(id: string, updateAccountDto: UpdateAccountDto) {
+  async update(workspaceId: string, id: string, updateAccountDto: UpdateAccountDto) {
     // Check if account exists first
-    const existing = await this.findOne(id);
+    const existing = await this.findOne(workspaceId, id);
 
     const { type, cdiPercentage, name, currency, balanceUsd, investedBrl, purchaseExchangeRate, ...rest } = updateAccountDto;
     const targetCurrency = (currency ?? existing.currency ?? 'BRL') as 'BRL' | 'USD';
@@ -337,14 +338,14 @@ export class AccountsService {
           ...yieldFields,
         },
       }),
-      ...(Math.abs(delta) >= 0.005 ? [this.prisma.balanceAdjustment.create({ data: { accountId: id, amount: delta } })] : []),
+      ...(Math.abs(delta) >= 0.005 ? [this.prisma.balanceAdjustment.create({ data: { accountId: id, workspaceId, amount: delta } })] : []),
     ]);
 
     // Still yielding with a new % of CDI: the new rate applies since it started yielding
     if (existing.type === 'YIELDING' && updated.type === 'YIELDING' && updated.yieldSince
       && updated.cdiPercentage !== existing.cdiPercentage && toDateKey(updated.yieldSince) < toDateKey(new Date())) {
       await this.yields.recomputeFrom(id, toDateKey(updated.yieldSince));
-      return this.findOne(id);
+      return this.findOne(workspaceId, id);
     }
     return updated;
   }
@@ -353,23 +354,23 @@ export class AccountsService {
    * Sets the free balance of a yielding account (what is outside the cofrinhos), e.g. to zero.
    * The account total becomes cofrinhos + the new free balance; the difference is a dated adjustment.
    */
-  async setFreeBalance(id: string, freeBalance: number) {
+  async setFreeBalance(workspaceId: string, id: string, freeBalance: number) {
     if (!(freeBalance >= 0)) throw new BadRequestException('O saldo livre não pode ser negativo.');
-    const account = await this.prisma.account.findUnique({ where: { id }, include: { pots: { select: { balance: true } } } });
+    const account = await this.prisma.account.findFirst({ where: { id, workspaceId }, include: { pots: { select: { balance: true } } } });
     if (!account) throw new NotFoundException(`Account with ID ${id} not found`);
     const potsTotal = account.pots.reduce((acc, p) => acc + p.balance, 0);
     const delta = Math.round((potsTotal + freeBalance - account.balance) * 100) / 100;
     if (Math.abs(delta) >= 0.005) {
       await this.prisma.$transaction([
         this.prisma.account.update({ where: { id }, data: { balance: { increment: delta } } }),
-        this.prisma.balanceAdjustment.create({ data: { accountId: id, amount: delta } }),
+        this.prisma.balanceAdjustment.create({ data: { accountId: id, workspaceId, amount: delta } }),
       ]);
     }
-    return (await this.findAll()).find(a => a.id === id);
+    return (await this.findAll(workspaceId)).find(a => a.id === id);
   }
 
-  async remove(id: string) {
-    const account = await this.findOne(id);
+  async remove(workspaceId: string, id: string) {
+    const account = await this.findOne(workspaceId, id);
 
     // Check if it's safe to delete (no transactions associated)
     const transactionsCount = await this.prisma.transaction.count({

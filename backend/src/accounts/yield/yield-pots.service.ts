@@ -20,8 +20,8 @@ export class YieldPotsService {
         private readonly yields: AccountYieldService,
     ) { }
 
-    private async yieldingAccount(accountId: string) {
-        const account = await this.prisma.account.findUnique({ where: { id: accountId }, include: { pots: true } });
+    private async yieldingAccount(workspaceId: string, accountId: string) {
+        const account = await this.prisma.account.findFirst({ where: { id: accountId, workspaceId }, include: { pots: true } });
         if (!account) throw new NotFoundException(`Account with ID ${accountId} not found`);
         if (account.type !== 'YIELDING') {
             throw new BadRequestException('Cofrinhos só existem em contas remuneradas.');
@@ -29,8 +29,11 @@ export class YieldPotsService {
         return account;
     }
 
-    private async pot(potId: string) {
-        const pot = await this.prisma.yieldPot.findUnique({ where: { id: potId }, include: { movements: true } });
+    private async pot(workspaceId: string, potId: string) {
+        const pot = await this.prisma.yieldPot.findFirst({
+            where: { id: potId, account: { workspaceId } },
+            include: { movements: true },
+        });
         if (!pot) throw new NotFoundException(`Cofrinho ${potId} não encontrado`);
         return pot;
     }
@@ -52,12 +55,14 @@ export class YieldPotsService {
         return round2(this.freeBalance(account) - await this.yields.creditedSince(account.id, MAIN_BUCKET, key));
     }
 
-    list(accountId: string) {
+    async list(workspaceId: string, accountId: string) {
+        const account = await this.prisma.account.findFirst({ where: { id: accountId, workspaceId }, select: { id: true } });
+        if (!account) throw new NotFoundException(`Account with ID ${accountId} not found`);
         return this.prisma.yieldPot.findMany({ where: { accountId }, orderBy: { createdAt: 'asc' } });
     }
 
-    async create(accountId: string, dto: CreatePotDto) {
-        const account = await this.yieldingAccount(accountId);
+    async create(workspaceId: string, accountId: string, dto: CreatePotDto) {
+        const account = await this.yieldingAccount(workspaceId, accountId);
         const when = this.resolveDate(dto.date);
         const initial = round2(dto.initialAmount ?? 0);
         if (initial > 0) {
@@ -79,8 +84,8 @@ export class YieldPotsService {
     }
 
     /** A new % of CDI applies since the pot was created: its yields are recalculated from that day. */
-    async update(potId: string, dto: UpdatePotDto) {
-        const pot = await this.pot(potId);
+    async update(workspaceId: string, potId: string, dto: UpdatePotDto) {
+        const pot = await this.pot(workspaceId, potId);
         const updated = await this.prisma.yieldPot.update({
             where: { id: potId },
             data: {
@@ -96,15 +101,15 @@ export class YieldPotsService {
     }
 
     /** Deleting a pot returns its balance to the account's free balance (the account total is unchanged). */
-    async remove(potId: string) {
-        await this.pot(potId);
+    async remove(workspaceId: string, potId: string) {
+        await this.pot(workspaceId, potId);
         return this.prisma.yieldPot.delete({ where: { id: potId } });
     }
 
     /** Guardar: free balance -> pot, on `date` (today by default). */
-    async deposit(potId: string, amount: number, date?: string) {
-        const pot = await this.pot(potId);
-        const account = await this.yieldingAccount(pot.accountId);
+    async deposit(workspaceId: string, potId: string, amount: number, date?: string) {
+        const pot = await this.pot(workspaceId, potId);
+        const account = await this.yieldingAccount(workspaceId, pot.accountId);
         const when = this.resolveDate(date);
         this.ensureAfterCreation(pot, when.key);
 
@@ -120,8 +125,8 @@ export class YieldPotsService {
     }
 
     /** Retirar: pot -> free balance, on `date` (today by default). */
-    async withdraw(potId: string, amount: number, date?: string) {
-        const pot = await this.pot(potId);
+    async withdraw(workspaceId: string, potId: string, amount: number, date?: string) {
+        const pot = await this.pot(workspaceId, potId);
         const when = this.resolveDate(date);
         this.ensureAfterCreation(pot, when.key);
 
@@ -144,8 +149,8 @@ export class YieldPotsService {
      * Sets the pot balance to what the bank app shows. The difference is recorded today as an adjustment:
      * it changes the pot and the account total, but not the free balance, and the daily yield continues from it.
      */
-    async adjust(potId: string, targetBalance: number) {
-        const pot = await this.pot(potId);
+    async adjust(workspaceId: string, potId: string, targetBalance: number) {
+        const pot = await this.pot(workspaceId, potId);
         const delta = round2(round2(targetBalance) - pot.balance);
         if (Math.abs(delta) < 0.005) return this.prisma.yieldPot.findUnique({ where: { id: potId } });
 

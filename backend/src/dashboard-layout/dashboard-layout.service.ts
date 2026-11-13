@@ -1,11 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-    DashboardLayoutItem,
-} from './dashboard-layout.constants';
-
-const LAYOUT_ID = 'default';
+import { DashboardLayoutItem } from './dashboard-layout.constants';
 
 export interface DashboardLayoutResponse {
     items: DashboardLayoutItem[];
@@ -14,12 +10,20 @@ export interface DashboardLayoutResponse {
 
 @Injectable()
 export class DashboardLayoutService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(private readonly prisma: PrismaService) {}
 
-    async get(): Promise<DashboardLayoutResponse> {
-        const layout = await this.prisma.dashboardLayout.findUnique({
-            where: { id: LAYOUT_ID },
+    async get(workspaceId: string, userId: string): Promise<DashboardLayoutResponse> {
+        let layout = await this.prisma.dashboardLayout.findUnique({
+            where: { workspaceId_userId: { workspaceId, userId } },
         });
+
+        // Fallback to any workspace layout if this user hasn't customized theirs yet
+        if (!layout) {
+            layout = await this.prisma.dashboardLayout.findFirst({
+                where: { workspaceId },
+                orderBy: { updatedAt: 'desc' },
+            });
+        }
 
         if (!layout) {
             return { items: [], updatedAt: null };
@@ -31,12 +35,16 @@ export class DashboardLayoutService {
         };
     }
 
-    async save(items: DashboardLayoutItem[]): Promise<DashboardLayoutResponse> {
+    async save(
+        workspaceId: string,
+        userId: string,
+        items: DashboardLayoutItem[],
+    ): Promise<DashboardLayoutResponse> {
         const data = items as unknown as Prisma.InputJsonValue;
 
         const layout = await this.prisma.dashboardLayout.upsert({
-            where: { id: LAYOUT_ID },
-            create: { id: LAYOUT_ID, items: data },
+            where: { workspaceId_userId: { workspaceId, userId } },
+            create: { workspaceId, userId, items: data },
             update: { items: data },
         });
 

@@ -32,8 +32,165 @@ enum AccountType {
   YIELDING  // Conta remunerada: rende % do CDI (ex: Mercado Pago)
 }
 
+enum WorkspaceMemberStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+model Plan {
+  id             String   @id @default(uuid())
+  code           String   @unique
+  name           String
+  description    String?
+  allowedModules String[]
+  isDefault      Boolean  @default(false)
+
+  users          User[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model User {
+  id                 String   @id @default(uuid())
+  name               String
+  email              String   @unique
+  passwordHash       String?
+  googleId           String?  @unique
+  isActive           Boolean  @default(true)
+  isSuperAdmin       Boolean  @default(false)
+  defaultWorkspaceId String?
+  planId             String?
+  plan               Plan?    @relation(fields: [planId], references: [id])
+
+  memberships        WorkspaceUser[]
+  sentInvites        WorkspaceInvite[] @relation("InvitesSent")
+  createdWorkspaces  Workspace[]       @relation("WorkspaceCreator")
+  dashboardLayouts   DashboardLayout[]
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Workspace {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  createdById String
+  createdBy   User     @relation("WorkspaceCreator", fields: [createdById], references: [id])
+
+  members             WorkspaceUser[]
+  invites             WorkspaceInvite[]
+  roles               Role[]
+  accounts            Account[]
+  categories          Category[]
+  transactions        Transaction[]
+  creditCards         CreditCard[]
+  cardTransactions    CardTransaction[]
+  recurringExpenses   RecurringExpense[]
+  investments         Investment[]
+  milesEntries        MilesEntry[]
+  balanceAdjustments  BalanceAdjustment[]
+  accountTransfers    AccountTransfer[]
+  dashboardLayouts    DashboardLayout[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Role {
+  id          String     @id @default(uuid())
+  code        String
+  name        String
+  description String?
+  isSystem    Boolean    @default(true)
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  permissions RolePermission[]
+  members     WorkspaceUser[]
+  invites     WorkspaceInvite[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([code, workspaceId])
+  @@index([workspaceId])
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  module      String
+  action      String
+  description String
+
+  roles       RolePermission[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([module, action])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model WorkspaceUser {
+  id          String                @id @default(uuid())
+  workspaceId String
+  userId      String
+  roleId      String
+  status      WorkspaceMemberStatus @default(ACTIVE)
+  joinedAt    DateTime              @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, userId])
+  @@index([userId, status])
+  @@index([workspaceId, roleId])
+}
+
+model WorkspaceInvite {
+  id          String       @id @default(uuid())
+  workspaceId String
+  email       String
+  roleId      String
+  token       String       @unique
+  status      InviteStatus @default(PENDING)
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  invitedBy   User      @relation("InvitesSent", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId, status])
+  @@index([email, status])
+}
+
 model Account {
   id                   String      @id @default(uuid())
+  workspaceId          String?
+  workspace            Workspace?  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   name                 String
   balance              Float       @default(0)
   currency             String      @default("BRL") // "BRL" | "USD"
@@ -54,23 +211,31 @@ model Account {
   transactions Transaction[]
   creditCards  CreditCard[]
   recurringExpenses RecurringExpense[]
+
+  @@index([workspaceId])
 }
 
 model Category {
-  id        String   @id @default(uuid())
-  name      String
-  color     String?
-  icon      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String     @id @default(uuid())
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  color       String?
+  icon        String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   
-  transactions     Transaction[]
-  cardTransactions CardTransaction[]
+  transactions      Transaction[]
+  cardTransactions  CardTransaction[]
   recurringExpenses RecurringExpense[]
+
+  @@index([workspaceId])
 }
 
 model Transaction {
   id                 String   @id @default(uuid())
+  workspaceId        String?
+  workspace          Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   description        String
   amount             Float
   date               DateTime
@@ -91,10 +256,13 @@ model Transaction {
   updatedAt   DateTime @updatedAt
 
   @@index([installmentGroupId])
+  @@index([workspaceId, date])
 }
 
 model CreditCard {
-  id          String   @id @default(uuid())
+  id          String     @id @default(uuid())
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   name        String
   limit                 Float
   invoiceClosingOffset  Int      @default(7)
@@ -117,6 +285,8 @@ model CreditCard {
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([workspaceId])
 }
 
 // Portador de um cartão: o titular e os cartões adicionais compartilham limite e fatura
@@ -139,6 +309,8 @@ model CardHolder {
 
 model CardTransaction {
   id          String   @id @default(uuid())
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   description String
   amount      Float
   date        DateTime
@@ -162,10 +334,13 @@ model CardTransaction {
   updatedAt   DateTime @updatedAt
 
   @@index([cardHolderId])
+  @@index([workspaceId, invoiceDate])
 }
 
 model RecurringExpense {
   id          String   @id @default(uuid())
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   description String
   amount      Float
   billingDay  Int      // 1 to 31
@@ -179,6 +354,8 @@ model RecurringExpense {
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([workspaceId])
 }
 
 enum InvestmentType {
@@ -192,6 +369,8 @@ enum InvestmentType {
 
 model Investment {
   id             String         @id @default(uuid())
+  workspaceId    String?
+  workspace      Workspace?     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   name           String
   type           InvestmentType
   investedAmount Float
@@ -214,6 +393,8 @@ model Investment {
 
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+
+  @@index([workspaceId, type])
 }
 
 model InvestmentDividend {
@@ -242,6 +423,8 @@ enum MilesStatus {
 
 model MilesEntry {
   id                 String      @id @default(uuid())
+  workspaceId        String?
+  workspace          Workspace?  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   program            String      // Programa de fidelidade (ex: Livelo, Esfera, Smiles)
   points             Int
   status             MilesStatus @default(PENDING)
@@ -262,34 +445,41 @@ model MilesEntry {
 
   @@index([status])
   @@index([expectedCreditDate])
+  @@index([workspaceId, status])
 }
 
 // Ajuste manual do saldo de uma conta (editar/zerar saldo): não é receita nem despesa.
 // Fica registrado com data para o rendimento de contas remuneradas mudar a partir desse dia.
 model BalanceAdjustment {
-  id        String   @id @default(uuid())
-  accountId String
-  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  amount    Float    // diferença aplicada ao saldo (+ ou -)
-  date      DateTime @default(now())
-  createdAt DateTime @default(now())
+  id          String     @id @default(uuid())
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  accountId   String
+  account     Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  amount      Float      // diferença aplicada ao saldo (+ ou -)
+  date        DateTime   @default(now())
+  createdAt   DateTime   @default(now())
 
   @@index([accountId])
+  @@index([workspaceId])
 }
 
 // Transferência entre contas próprias: não é receita nem despesa, só move saldo
 model AccountTransfer {
-  id            String   @id @default(uuid())
+  id            String     @id @default(uuid())
+  workspaceId   String?
+  workspace     Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   fromAccountId String
-  fromAccount   Account  @relation("TransfersOut", fields: [fromAccountId], references: [id])
+  fromAccount   Account    @relation("TransfersOut", fields: [fromAccountId], references: [id])
   toAccountId   String
-  toAccount     Account  @relation("TransfersIn", fields: [toAccountId], references: [id])
+  toAccount     Account    @relation("TransfersIn", fields: [toAccountId], references: [id])
   amount        Float
-  date          DateTime // Dia em que o dinheiro saiu de uma conta e entrou na outra
+  date          DateTime   // Dia em que o dinheiro saiu de uma conta e entrou na outra
   description   String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime   @default(now())
 
   @@index([date])
+  @@index([workspaceId, date])
 }
 
 // Cofrinho dentro de uma conta remunerada, com % do CDI próprio
@@ -337,9 +527,15 @@ model AccountYield {
   @@unique([accountId, bucket, date])
 }
 
-// Layout personalizado do Resumo: ordem e largura dos blocos (singleton, app de usuário único)
+// Layout personalizado do Resumo: ordem e largura dos blocos por workspace/usuário
 model DashboardLayout {
-  id        String   @id @default("default")
-  items     Json
-  updatedAt DateTime @updatedAt
+  id          String     @id @default(uuid())
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       Json
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([workspaceId, userId])
 }

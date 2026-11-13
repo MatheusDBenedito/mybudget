@@ -35,11 +35,12 @@ export class CashFlowService {
      * so card rows update as soon as purchases are added to an invoice.
      * Uses the gross balance (valor bruto) sum across all accounts + investments as openingBalance.
      */
-    async getCashFlow(month: number, year: number, count: number, today = new Date()): Promise<CashFlowResult> {
+    async getCashFlow(workspaceId: string, month: number, year: number, count: number, today = new Date()): Promise<CashFlowResult> {
         const [accounts, investments, cards] = await Promise.all([
-            this.accounts.findAll(),
-            this.investments.findAll(),
+            this.accounts.findAll(workspaceId),
+            this.investments.findAll(workspaceId),
             this.prisma.creditCard.findMany({
+                where: { workspaceId },
                 select: {
                     id: true,
                     name: true,
@@ -65,6 +66,7 @@ export class CashFlowService {
         const projStart = fromIndex(projStartIdx);
         const projCount = Math.max(count, projEndIdx - projStartIdx);
         const projections = await this.investments.getProjections(
+            workspaceId,
             projStart.month,
             projStart.year,
             projCount,
@@ -83,8 +85,8 @@ export class CashFlowService {
         const loadMonth = async (index: number): Promise<CashFlowMonthInput> => {
             const m = fromIndex(index);
             const [transactions, invoices] = await Promise.all([
-                this.transactions.findAll(m.month, m.year),
-                Promise.all(cards.map(c => this.cardTransactions.findAllByInvoice(c.id, m.month, m.year))),
+                this.transactions.findAll(workspaceId, m.month, m.year),
+                Promise.all(cards.map(c => this.cardTransactions.findAllByInvoice(workspaceId, c.id, m.month, m.year))),
             ]);
             return {
                 ...m,

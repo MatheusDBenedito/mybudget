@@ -10,6 +10,13 @@ async function main() {
 
     try {
         const [
+            users,
+            workspaces,
+            roles,
+            permissions,
+            rolePermissions,
+            workspaceUsers,
+            workspaceInvites,
             accounts,
             categories,
             creditCards,
@@ -27,6 +34,13 @@ async function main() {
             accountYields,
             dashboardLayouts,
         ] = await Promise.all([
+            prisma.user.findMany(),
+            prisma.workspace.findMany(),
+            prisma.role.findMany(),
+            prisma.permission.findMany(),
+            prisma.rolePermission.findMany(),
+            prisma.workspaceUser.findMany(),
+            prisma.workspaceInvite.findMany(),
             prisma.account.findMany(),
             prisma.category.findMany(),
             prisma.creditCard.findMany(),
@@ -47,8 +61,15 @@ async function main() {
 
         const payload = {
             exportedAt: new Date().toISOString(),
-            version: 1,
+            version: 2,
             counts: {
+                users: users.length,
+                workspaces: workspaces.length,
+                roles: roles.length,
+                permissions: permissions.length,
+                rolePermissions: rolePermissions.length,
+                workspaceUsers: workspaceUsers.length,
+                workspaceInvites: workspaceInvites.length,
                 accounts: accounts.length,
                 categories: categories.length,
                 creditCards: creditCards.length,
@@ -67,6 +88,13 @@ async function main() {
                 dashboardLayouts: dashboardLayouts.length,
             },
             data: {
+                users,
+                workspaces,
+                roles,
+                permissions,
+                rolePermissions,
+                workspaceUsers,
+                workspaceInvites,
                 accounts,
                 categories,
                 creditCards,

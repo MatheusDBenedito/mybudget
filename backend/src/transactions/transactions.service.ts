@@ -19,15 +19,27 @@ const clampedMonthDate = (year: number, month: number, day: number) => {
 export class TransactionsService {
     constructor(private readonly prisma: PrismaService) { }
 
-    async create(createTransactionDto: CreateTransactionDto) {
+    async create(workspaceId: string, createTransactionDto: CreateTransactionDto) {
         let { accountId, installments, ...rest } = createTransactionDto;
 
         if (!accountId) {
-            const account = await this.prisma.account.findFirst();
+            const account = await this.prisma.account.findFirst({ where: { workspaceId } });
             if (!account) {
                 throw new NotFoundException('Nenhuma conta encontrada para vincular a transação.');
             }
             accountId = account.id;
+        } else {
+            const account = await this.prisma.account.findFirst({ where: { id: accountId, workspaceId }, select: { id: true } });
+            if (!account) {
+                throw new BadRequestException('Conta informada não encontrada neste workspace.');
+            }
+        }
+
+        if (rest.categoryId) {
+            const cat = await this.prisma.category.findFirst({ where: { id: rest.categoryId, workspaceId }, select: { id: true } });
+            if (!cat) {
+                throw new BadRequestException('Categoria informada não encontrada neste workspace.');
+            }
         }
 
         const installmentsCount = rest.isFixed ? 1 : Math.min(480, Math.max(1, installments ?? 1));
@@ -44,6 +56,7 @@ export class TransactionsService {
             const transaction = await this.prisma.transaction.create({
                 data: {
                     ...rest,
+                    workspaceId,
                     installments: 1,
                     accountId,
                 },
@@ -77,6 +90,7 @@ export class TransactionsService {
             for (const draft of drafts) {
                 const tx = await db.transaction.create({
                     data: {
+                        workspaceId,
                         description: draft.description,
                         amount: draft.amount,
                         date: draft.date,
@@ -106,8 +120,8 @@ export class TransactionsService {
         });
     }
 
-    async findAll(month?: number, year?: number) {
-        const whereClause: any = {};
+    async findAll(workspaceId: string, month?: number, year?: number) {
+        const whereClause: any = { workspaceId };
 
         if (month && year) {
             const startDate = new Date(year, month - 1, 1);
@@ -138,6 +152,7 @@ export class TransactionsService {
 
             const fixedTransactions = await this.prisma.transaction.findMany({
                 where: {
+                    workspaceId,
                     isFixed: true,
                     date: { lt: startDate }, // Only from before this month
                 },
@@ -186,19 +201,19 @@ export class TransactionsService {
      * - "single": overrides only this month (leaving future projections at the original estimate).
      * - "series": updates this month and future months (ending earlier templates before this month).
      */
-    async update(id: string, dto: UpdateTransactionDto) {
+    async update(workspaceId: string, id: string, dto: UpdateTransactionDto) {
         const scope = dto.scope ?? 'single';
 
         if (dto.accountId) {
-            const account = await this.prisma.account.findUnique({ where: { id: dto.accountId }, select: { id: true } });
+            const account = await this.prisma.account.findFirst({ where: { id: dto.accountId, workspaceId }, select: { id: true } });
             if (!account) {
-                throw new BadRequestException('Conta informada não encontrada.');
+                throw new BadRequestException('Conta informada não encontrada neste workspace.');
             }
         }
 
         if (id.startsWith('projected-')) {
             const { originalId, year, month } = this.parseProjectedId(id);
-            const original = await this.prisma.transaction.findUnique({ where: { id: originalId } });
+            const original = await this.prisma.transaction.findFirst({ where: { id: originalId, workspaceId } });
             if (!original) {
                 throw new NotFoundException(`Original fixed transaction ${originalId} not found`);
             }
@@ -218,6 +233,7 @@ export class TransactionsService {
                 if (scope === 'series') {
                     await tx.transaction.updateMany({
                         where: {
+                            workspaceId,
                             isFixed: true,
                             type: original.type,
                             description: original.description,
@@ -229,6 +245,7 @@ export class TransactionsService {
 
                 return tx.transaction.create({
                     data: {
+                        workspaceId,
                         description: nextDescription,
                         amount: nextAmount,
                         date: nextDate,
@@ -244,7 +261,7 @@ export class TransactionsService {
             });
         }
 
-        const existing = await this.prisma.transaction.findUnique({ where: { id } });
+        const existing = await this.prisma.transaction.findFirst({ where: { id, workspaceId } });
         if (!existing) {
             throw new NotFoundException(`Transaction with ID ${id} not found`);
         }
@@ -295,6 +312,7 @@ export class TransactionsService {
                 await tx.transaction.updateMany({
                     where: {
                         id: { not: id },
+                        workspaceId,
                         isFixed: true,
                         type: existing.type,
                         description: existing.description,
@@ -306,6 +324,7 @@ export class TransactionsService {
                 const futureRows = await tx.transaction.findMany({
                     where: {
                         id: { not: id },
+                        workspaceId,
                         isFixed: true,
                         type: existing.type,
                         description: existing.description,
@@ -348,13 +367,13 @@ export class TransactionsService {
      * - PAID → anything else: reverses the amount on the account that received it.
      * Status and balance are written in a single database transaction.
      */
-    async updateStatus(id: string, updateDto: UpdateTransactionStatusDto) {
+    async updateStatus(workspaceId: string, id: string, updateDto: UpdateTransactionStatusDto) {
         const newStatus = updateDto.status;
 
         if (newStatus === 'PAID' && updateDto.accountId) {
-            const account = await this.prisma.account.findUnique({ where: { id: updateDto.accountId }, select: { id: true } });
+            const account = await this.prisma.account.findFirst({ where: { id: updateDto.accountId, workspaceId }, select: { id: true } });
             if (!account) {
-                throw new BadRequestException('Conta informada não encontrada.');
+                throw new BadRequestException('Conta informada não encontrada neste workspace.');
             }
         }
 
@@ -362,8 +381,8 @@ export class TransactionsService {
         if (id.startsWith('projected-')) {
             const { originalId, year: projYear, month: projMonth } = this.parseProjectedId(id);
 
-            const original = await this.prisma.transaction.findUnique({
-                where: { id: originalId },
+            const original = await this.prisma.transaction.findFirst({
+                where: { id: originalId, workspaceId },
             });
 
             if (!original) {
@@ -378,6 +397,7 @@ export class TransactionsService {
             return this.prisma.$transaction(async (tx) => {
                 const created = await tx.transaction.create({
                     data: {
+                        workspaceId,
                         description: original.description,
                         amount: effectiveAmount,
                         date: projectedDate,
@@ -400,8 +420,8 @@ export class TransactionsService {
         }
 
         // Regular (non-projected) transaction
-        const transaction = await this.prisma.transaction.findUnique({
-            where: { id },
+        const transaction = await this.prisma.transaction.findFirst({
+            where: { id, workspaceId },
         });
 
         if (!transaction) {
@@ -455,9 +475,9 @@ export class TransactionsService {
      * - "series": this month and the following ones. Rows from this month on are removed and earlier rows
      *   of the series stop projecting after the previous month.
      */
-    async remove(id: string, scope: 'single' | 'series' = 'single') {
+    async remove(workspaceId: string, id: string, scope: 'single' | 'series' = 'single') {
         const projected = id.startsWith('projected-') ? this.parseProjectedId(id) : null;
-        const tx = await this.prisma.transaction.findUnique({ where: { id: projected?.originalId ?? id } });
+        const tx = await this.prisma.transaction.findFirst({ where: { id: projected?.originalId ?? id, workspaceId } });
         if (!tx) throw new NotFoundException(`Transaction with ID ${id} not found`);
 
         const monthStart = projected
@@ -468,6 +488,7 @@ export class TransactionsService {
             if (tx.installmentGroupId && scope === 'series') {
                 const groupRows = await this.prisma.transaction.findMany({
                     where: {
+                        workspaceId,
                         installmentGroupId: tx.installmentGroupId,
                         date: { gte: monthStart },
                     },
@@ -489,7 +510,7 @@ export class TransactionsService {
 
         if (scope === 'series') {
             const series = await this.prisma.transaction.findMany({
-                where: { isFixed: true, description: tx.description, type: tx.type },
+                where: { workspaceId, isFixed: true, description: tx.description, type: tx.type },
             });
             const lastDayBefore = new Date(monthStart.getTime() - 1);
             return this.prisma.$transaction(async (db) => {
@@ -509,6 +530,7 @@ export class TransactionsService {
             // A cancelled row for the month makes the projection dedupe skip it
             return this.prisma.transaction.create({
                 data: {
+                    workspaceId,
                     description: tx.description,
                     amount: tx.amount,
                     type: tx.type,

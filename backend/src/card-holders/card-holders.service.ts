@@ -13,8 +13,8 @@ import { UpdateCardHolderDto } from './dto/update-card-holder.dto';
 export class CardHoldersService {
     constructor(private readonly prisma: PrismaService) { }
 
-    async findAll(creditCardId: string) {
-        await this.ensureCard(creditCardId);
+    async findAll(workspaceId: string, creditCardId: string) {
+        await this.ensureCard(workspaceId, creditCardId);
 
         return this.prisma.cardHolder.findMany({
             where: { creditCardId },
@@ -22,8 +22,8 @@ export class CardHoldersService {
         });
     }
 
-    async create(creditCardId: string, dto: CreateCardHolderDto) {
-        await this.ensureCard(creditCardId);
+    async create(workspaceId: string, creditCardId: string, dto: CreateCardHolderDto) {
+        await this.ensureCard(workspaceId, creditCardId);
 
         const name = dto.name.trim();
         if (!name) {
@@ -56,8 +56,8 @@ export class CardHoldersService {
         }
     }
 
-    async update(creditCardId: string, id: string, dto: UpdateCardHolderDto) {
-        const holder = await this.findHolder(creditCardId, id);
+    async update(workspaceId: string, creditCardId: string, id: string, dto: UpdateCardHolderDto) {
+        const holder = await this.findHolder(workspaceId, creditCardId, id);
 
         if (dto.isMain === false && holder.isMain) {
             throw new BadRequestException(
@@ -93,8 +93,8 @@ export class CardHoldersService {
         }
     }
 
-    async remove(creditCardId: string, id: string) {
-        const holder = await this.findHolder(creditCardId, id);
+    async remove(workspaceId: string, creditCardId: string, id: string) {
+        const holder = await this.findHolder(workspaceId, creditCardId, id);
 
         const transactionCount = await this.prisma.cardTransaction.count({
             where: { cardHolderId: id },
@@ -115,18 +115,19 @@ export class CardHoldersService {
         return this.prisma.cardHolder.delete({ where: { id } });
     }
 
-    private async ensureCard(creditCardId: string) {
-        const card = await this.prisma.creditCard.findUnique({
-            where: { id: creditCardId },
+    private async ensureCard(workspaceId: string, creditCardId: string) {
+        const card = await this.prisma.creditCard.findFirst({
+            where: { id: creditCardId, workspaceId },
             select: { id: true },
         });
 
         if (!card) {
-            throw new NotFoundException('Cartão não encontrado.');
+            throw new NotFoundException('Cartão não encontrado neste workspace.');
         }
     }
 
-    private async findHolder(creditCardId: string, id: string) {
+    private async findHolder(workspaceId: string, creditCardId: string, id: string) {
+        await this.ensureCard(workspaceId, creditCardId);
         const holder = await this.prisma.cardHolder.findFirst({
             where: { id, creditCardId },
         });

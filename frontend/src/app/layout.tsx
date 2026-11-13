@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import { AppHeader } from "@/components/AppHeader";
+import { AuthProvider } from "@/components/AuthProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { PrivacyProvider } from "@/lib/privacy";
 import "./globals.css";
@@ -35,17 +36,19 @@ export default function RootLayout({
           }}
         />
         <PrivacyProvider>
-          <AppHeader />
-          <main className="mx-auto w-full max-w-[1680px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
-            {children}
-          </main>
-          <footer className="bg-header text-header-foreground/70">
-            <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-between gap-2 px-4 py-6 text-xs sm:px-6 lg:px-8">
-              <span className="text-base font-semibold text-header-foreground">MyFinance</span>
-              <span>Cotações: brapi (B3), Yahoo Finance (EUA), CoinGecko (cripto), Banco Central (CDI/Selic), AwesomeAPI (dólar)</span>
-            </div>
-          </footer>
-          <Toaster />
+          <AuthProvider>
+            <AppHeader />
+            <main className="mx-auto w-full max-w-[1680px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
+              {children}
+            </main>
+            <footer className="bg-header text-header-foreground/70">
+              <div className="mx-auto flex max-w-[1680px] flex-wrap items-center justify-between gap-2 px-4 py-6 text-xs sm:px-6 lg:px-8">
+                <span className="text-base font-semibold text-header-foreground">MyFinance</span>
+                <span>Cotações: brapi (B3), Yahoo Finance (EUA), CoinGecko (cripto), Banco Central (CDI/Selic), AwesomeAPI (dólar)</span>
+              </div>
+            </footer>
+            <Toaster />
+          </AuthProvider>
         </PrivacyProvider>
       </body>
     </html>

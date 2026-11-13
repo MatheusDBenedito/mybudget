@@ -5,24 +5,23 @@ import { UpdateCreditCardDto } from './dto/update-credit-card.dto';
 
 @Injectable()
 export class CreditCardsService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(private readonly prisma: PrismaService) {}
 
-    async create(createCreditCardDto: CreateCreditCardDto) {
-        // Para simplificar no MVP, como o usuário não tem sistema de login ainda,
-        // vamos atrelar o cartão à primeira conta bancária existente.
-        const account = await this.prisma.account.findFirst();
+    async create(workspaceId: string, createCreditCardDto: CreateCreditCardDto) {
+        const account = await this.prisma.account.findFirst({ where: { workspaceId } });
 
         if (!account) {
             throw new NotFoundException('Por favor, crie uma Conta Corrente antes de adicionar cartões.');
         }
 
         // The first card becomes the favorite, so the summary always has something to show
-        const hasPrimary = await this.prisma.creditCard.findFirst({ where: { isPrimary: true } });
+        const hasPrimary = await this.prisma.creditCard.findFirst({ where: { workspaceId, isPrimary: true } });
 
         const holderName = createCreditCardDto.holderName?.trim() || 'Titular';
 
         return this.prisma.creditCard.create({
             data: {
+                workspaceId,
                 name: createCreditCardDto.name,
                 limit: createCreditCardDto.limit,
                 invoiceClosingOffset: createCreditCardDto.invoiceClosingOffset,
@@ -47,8 +46,9 @@ export class CreditCardsService {
         });
     }
 
-    async findAll() {
+    async findAll(workspaceId: string) {
         return this.prisma.creditCard.findMany({
+            where: { workspaceId },
             orderBy: [
                 { isPrimary: 'desc' },
                 { createdAt: 'desc' },
@@ -62,15 +62,15 @@ export class CreditCardsService {
     }
 
     /** Makes this card the only favorite (and therefore the one featured on the summary). */
-    async setPrimary(id: string) {
-        const card = await this.prisma.creditCard.findUnique({ where: { id } });
+    async setPrimary(workspaceId: string, id: string) {
+        const card = await this.prisma.creditCard.findFirst({ where: { id, workspaceId } });
         if (!card) {
             throw new NotFoundException('Cartão não encontrado.');
         }
 
         const [, updated] = await this.prisma.$transaction([
             this.prisma.creditCard.updateMany({
-                where: { isPrimary: true, id: { not: id } },
+                where: { workspaceId, isPrimary: true, id: { not: id } },
                 data: { isPrimary: false },
             }),
             this.prisma.creditCard.update({
@@ -81,7 +81,12 @@ export class CreditCardsService {
         return updated;
     }
 
-    async update(id: string, updateCreditCardDto: UpdateCreditCardDto) {
+    async update(workspaceId: string, id: string, updateCreditCardDto: UpdateCreditCardDto) {
+        const card = await this.prisma.creditCard.findFirst({ where: { id, workspaceId } });
+        if (!card) {
+            throw new NotFoundException('Cartão não encontrado.');
+        }
+
         return this.prisma.creditCard.update({
             where: { id },
             data: {

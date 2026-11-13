@@ -4,62 +4,58 @@ import { TransactionType } from '@prisma/client';
 
 @Injectable()
 export class ReportsService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(private readonly prisma: PrismaService) {}
 
-    async getExpensesByCategory(month: number, year: number) {
+    async getExpensesByCategory(workspaceId: string, month: number, year: number) {
         const startDate = new Date(year, month - 1, 1);
         const endDate = new Date(year, month, 1);
 
-        // 1. Group regular transactions (EXPENSE only) by category purely relying on the physical date
         const regularExpenses = await this.prisma.transaction.groupBy({
             by: ['categoryId'],
             where: {
+                workspaceId,
                 type: TransactionType.EXPENSE,
+                status: { not: 'CANCELLED' },
                 date: { gte: startDate, lt: endDate },
             },
             _sum: { amount: true },
         });
 
-        // 2. Group credit card transactions by category depending on the resolved invoiceDate
         const cardExpenses = await this.prisma.cardTransaction.groupBy({
             by: ['categoryId'],
             where: {
+                workspaceId,
                 invoiceDate: { gte: startDate, lt: endDate },
             },
             _sum: { amount: true },
         });
 
-        // 3. Combine both aggregations natively using the categoryId as key
         const aggregatedMap = new Map<string | null, number>();
 
-        regularExpenses.forEach(exp => {
+        regularExpenses.forEach((exp) => {
             const current = aggregatedMap.get(exp.categoryId) || 0;
             aggregatedMap.set(exp.categoryId, current + (exp._sum.amount || 0));
         });
 
-        cardExpenses.forEach(exp => {
+        cardExpenses.forEach((exp) => {
             const current = aggregatedMap.get(exp.categoryId) || 0;
             aggregatedMap.set(exp.categoryId, current + (exp._sum.amount || 0));
         });
 
-        // 4. Fetch the category details (name and color)
-        // We only fetch categories that actually had expenses (values > 0) to avoid dirtying the pie chart
-        const categoryIds = Array.from(aggregatedMap.keys()).filter(id => id !== null) as string[];
+        const categoryIds = Array.from(aggregatedMap.keys()).filter((id) => id !== null) as string[];
 
         const categories = await this.prisma.category.findMany({
-            where: { id: { in: categoryIds } },
+            where: { id: { in: categoryIds }, workspaceId },
         });
 
         const categoryDict = categories.reduce((acc, cat) => {
             acc[cat.id] = { name: cat.name, color: cat.color || '#cccccc' };
             return acc;
-        }, {} as Record<string, { name: string, color: string }>);
+        }, {} as Record<string, { name: string; color: string }>);
 
-        // 5. Structure the final JSON for the frontend pie charts
         const result = [];
 
         for (const [categoryId, totalAmount] of aggregatedMap.entries()) {
-            // By default Pie Charts shouldn't render zeroes, we skip them if exists just in case
             if (totalAmount <= 0) continue;
 
             if (categoryId && categoryDict[categoryId]) {
@@ -69,57 +65,54 @@ export class ReportsService {
                     total: totalAmount,
                 });
             } else {
-                // Fallback for transactions that didn't receive a categorized label
                 result.push({
                     category: 'Outros',
-                    color: '#9e9e9e', // Default grey for uncategorized
+                    color: '#9e9e9e',
                     total: totalAmount,
                 });
             }
         }
 
-        // Sort descending by total so the biggest slices appear first in UI
         return result.sort((a, b) => b.total - a.total);
     }
 
-    async getMonthlyEvolution() {
+    async getMonthlyEvolution(workspaceId: string) {
         const today = new Date();
-        // Start measuring exactly from the first day of the month 5 months ago (producing 6 months total)
         const startDate = new Date(today.getFullYear(), today.getMonth() - 5, 1);
         const endDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);
 
-        // 1. Fetch Income metrics grouped by month/year
         const incomeTransactions = await this.prisma.transaction.groupBy({
             by: ['date'],
             where: {
+                workspaceId,
                 type: TransactionType.INCOME,
+                status: { not: 'CANCELLED' },
                 date: { gte: startDate, lt: endDate },
             },
             _sum: { amount: true },
         });
 
-        // 2. Fetch Fixed Expenses from checking account
         const expenseTransactions = await this.prisma.transaction.groupBy({
             by: ['date'],
             where: {
+                workspaceId,
                 type: TransactionType.EXPENSE,
+                status: { not: 'CANCELLED' },
                 date: { gte: startDate, lt: endDate },
             },
             _sum: { amount: true },
         });
 
-        // 3. Fetch expenses generated by Credit Card Invoices
         const cardExpenses = await this.prisma.cardTransaction.groupBy({
             by: ['invoiceDate'],
             where: {
+                workspaceId,
                 invoiceDate: { gte: startDate, lt: endDate },
             },
             _sum: { amount: true },
         });
 
-        // Prepare dictionary map for Month-Year to easily aggregate sums across all 3 tables
-        // Initializing with zero helps the UI Bar Chart render nicely for empty months
-        const monthlyMap = new Map<string, { monthParam: string, income: number, expense: number }>();
+        const monthlyMap = new Map<string, { monthParam: string; income: number; expense: number }>();
 
         for (let i = 5; i >= 0; i--) {
             const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
@@ -127,31 +120,27 @@ export class ReportsService {
             monthlyMap.set(formatString, { monthParam: formatString, income: 0, expense: 0 });
         }
 
-        // Process Income
-        incomeTransactions.forEach(t => {
+        incomeTransactions.forEach((t) => {
             const formatString = `${String(t.date.getMonth() + 1).padStart(2, '0')}/${t.date.getFullYear()}`;
             if (monthlyMap.has(formatString)) {
                 monthlyMap.get(formatString)!.income += t._sum.amount || 0;
             }
         });
 
-        // Process Account Expenses
-        expenseTransactions.forEach(t => {
+        expenseTransactions.forEach((t) => {
             const formatString = `${String(t.date.getMonth() + 1).padStart(2, '0')}/${t.date.getFullYear()}`;
             if (monthlyMap.has(formatString)) {
                 monthlyMap.get(formatString)!.expense += t._sum.amount || 0;
             }
         });
 
-        // Process Credit Card Expenses
-        cardExpenses.forEach(t => {
+        cardExpenses.forEach((t) => {
             const formatString = `${String(t.invoiceDate.getMonth() + 1).padStart(2, '0')}/${t.invoiceDate.getFullYear()}`;
             if (monthlyMap.has(formatString)) {
                 monthlyMap.get(formatString)!.expense += t._sum.amount || 0;
             }
         });
 
-        // Return the array of aggregated values chronologically for Bar Charts format
         return Array.from(monthlyMap.values());
     }
 }
