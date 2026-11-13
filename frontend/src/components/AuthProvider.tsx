@@ -7,8 +7,8 @@ import {
   ACTIVE_WORKSPACE_STORAGE_KEY,
   API_BASE_URL,
   AUTH_TOKEN_STORAGE_KEY,
-  SESSION_EXPIRES_AT_STORAGE_KEY,
-  SHORT_SESSION_DURATION_MS,
+  INACTIVITY_TIMEOUT_MS,
+  LAST_ACTIVITY_STORAGE_KEY,
   canAccessRoute,
   getAuthStorageValue,
   hasAnyPermission as checkAnyPermission,
@@ -30,7 +30,7 @@ interface AuthContextValue {
   loading: boolean;
   hasPermission: (code: string) => boolean;
   hasAnyPermission: (codes: readonly string[]) => boolean;
-  setSession: (payload: AuthSessionPayload, options?: { rememberMe?: boolean }) => void;
+  setSession: (payload: AuthSessionPayload) => void;
   refreshSession: () => Promise<void>;
   switchWorkspace: (workspaceId: string) => void;
   logout: () => void;
@@ -100,9 +100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
       window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
+      window.localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
       window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
       window.sessionStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
-      window.sessionStorage.removeItem(SESSION_EXPIRES_AT_STORAGE_KEY);
     }
     setUser(null);
     setWorkspaces([]);
@@ -137,9 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
 
       if (typeof window !== "undefined" && resolved) {
-        const useSessionOnly = Boolean(window.sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY));
-        const targetStorage = useSessionOnly ? window.sessionStorage : window.localStorage;
-        targetStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, resolved.id);
+        window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, resolved.id);
       }
 
       setUser(data.user);
@@ -151,27 +149,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const setSession = useCallback(
-    (payload: AuthSessionPayload, options?: { rememberMe?: boolean }) => {
-      const rememberMe = options?.rememberMe ?? true;
+    (payload: AuthSessionPayload) => {
       if (typeof window !== "undefined") {
-        window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-        window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
         window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
         window.sessionStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
-        window.sessionStorage.removeItem(SESSION_EXPIRES_AT_STORAGE_KEY);
-
-        const targetStorage = rememberMe ? window.localStorage : window.sessionStorage;
-        targetStorage.setItem(AUTH_TOKEN_STORAGE_KEY, payload.accessToken);
-        if (!rememberMe) {
-          window.sessionStorage.setItem(
-            SESSION_EXPIRES_AT_STORAGE_KEY,
-            String(Date.now() + SHORT_SESSION_DURATION_MS),
-          );
-        }
+        window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, payload.accessToken);
+        window.localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
 
         const preferredId = payload.activeWorkspace?.id ?? payload.workspaces[0]?.id ?? null;
         if (preferredId) {
-          targetStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, preferredId);
+          window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, preferredId);
+        } else {
+          window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
         }
       }
       applyProfile(payload);
@@ -188,11 +177,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const expiresAtRaw = window.sessionStorage.getItem(SESSION_EXPIRES_AT_STORAGE_KEY);
-    if (expiresAtRaw && Number(expiresAtRaw) <= Date.now()) {
+    const lastActivityRaw = window.localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY);
+    if (lastActivityRaw && Date.now() - Number(lastActivityRaw) >= INACTIVITY_TIMEOUT_MS) {
       clearAuth();
       setLoading(false);
       return;
+    }
+    if (!lastActivityRaw) {
+      window.localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
     }
 
     try {
@@ -220,26 +212,88 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined" || !user) return;
-    const expiresAtRaw = window.sessionStorage.getItem(SESSION_EXPIRES_AT_STORAGE_KEY);
-    if (!expiresAtRaw) return;
 
-    const remainingMs = Number(expiresAtRaw) - Date.now();
-    if (remainingMs <= 0) {
-      Promise.resolve().then(() => {
-        clearAuth();
-        toast.info("Sessão expirada após 10 minutos.");
-        router.replace("/login");
-      });
-      return;
-    }
+    let timer: number | undefined;
+    let lastRecordedAt = Number(window.localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY) || Date.now());
 
-    const timer = window.setTimeout(() => {
+    const expireForInactivity = () => {
       clearAuth();
-      toast.info("Sessão expirada após 10 minutos.");
+      toast.info("Sessão expirada por inatividade (10 minutos).");
       router.replace("/login");
-    }, remainingMs);
+    };
 
-    return () => window.clearTimeout(timer);
+    const scheduleCheck = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      const elapsed = Date.now() - lastRecordedAt;
+      const remaining = INACTIVITY_TIMEOUT_MS - elapsed;
+      if (remaining <= 0) {
+        expireForInactivity();
+        return;
+      }
+      timer = window.setTimeout(() => {
+        const stored = Number(window.localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY) || lastRecordedAt);
+        lastRecordedAt = stored;
+        if (Date.now() - stored >= INACTIVITY_TIMEOUT_MS) {
+          expireForInactivity();
+        } else {
+          scheduleCheck();
+        }
+      }, remaining);
+    };
+
+    const recordActivity = () => {
+      const now = Date.now();
+      if (now - lastRecordedAt < 5000) return;
+      lastRecordedAt = now;
+      window.localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(now));
+      scheduleCheck();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      const stored = Number(window.localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY) || lastRecordedAt);
+      lastRecordedAt = stored;
+      scheduleCheck();
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === AUTH_TOKEN_STORAGE_KEY && !event.newValue) {
+        clearAuth();
+        router.replace("/login");
+        return;
+      }
+      if (event.key === LAST_ACTIVITY_STORAGE_KEY && event.newValue) {
+        lastRecordedAt = Number(event.newValue);
+        scheduleCheck();
+      }
+    };
+
+    const activityEvents: Array<keyof WindowEventMap> = [
+      "pointerdown",
+      "keydown",
+      "mousemove",
+      "scroll",
+      "touchstart",
+    ];
+
+    window.localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(lastRecordedAt));
+    const initTimer = window.setTimeout(scheduleCheck, 0);
+
+    for (const eventName of activityEvents) {
+      window.addEventListener(eventName, recordActivity, { passive: true });
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      window.clearTimeout(initTimer);
+      if (timer !== undefined) window.clearTimeout(timer);
+      for (const eventName of activityEvents) {
+        window.removeEventListener(eventName, recordActivity);
+      }
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("storage", handleStorage);
+    };
   }, [clearAuth, router, user]);
 
   useEffect(() => {

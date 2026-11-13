@@ -36,12 +36,12 @@ export interface AuthSessionPayload {
 export const AUTH_TOKEN_STORAGE_KEY = 'myfinance_auth_token';
 export const ACTIVE_WORKSPACE_STORAGE_KEY = 'myfinance_active_workspace_id';
 export const REMEMBERED_LOGIN_STORAGE_KEY = 'myfinance_remembered_login';
-export const SESSION_EXPIRES_AT_STORAGE_KEY = 'myfinance_session_expires_at';
-export const SHORT_SESSION_DURATION_MS = 10 * 60 * 1000;
+export const LAST_ACTIVITY_STORAGE_KEY = 'myfinance_last_activity_at';
+export const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
 
 export function getAuthStorageValue(key: string): string | null {
   if (typeof window === 'undefined') return null;
-  return window.sessionStorage.getItem(key) ?? window.localStorage.getItem(key);
+  return window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key);
 }
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||

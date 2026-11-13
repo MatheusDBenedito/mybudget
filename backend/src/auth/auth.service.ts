@@ -45,15 +45,10 @@ export class AuthService implements OnModuleInit {
             throw new UnauthorizedException('E-mail ou senha inválidos.');
         }
 
-        const accessToken = await this.jwtService.signAsync(
-            {
-                sub: user.id,
-                email: user.email,
-            },
-            {
-                expiresIn: dto.rememberMe ? '7d' : '10m',
-            },
-        );
+        const accessToken = await this.jwtService.signAsync({
+            sub: user.id,
+            email: user.email,
+        });
 
         const profile = await this.getProfile(user.id);
         return { accessToken, ...profile };

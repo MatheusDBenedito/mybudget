@@ -61,7 +61,7 @@ export default function LoginPage() {
         }
       }
 
-      setSession(data, { rememberMe });
+      setSession(data);
       toast.success(`Bem-vindo(a), ${data.user.name}!`);
       router.replace("/");
     } catch {
@@ -112,22 +112,17 @@ export default function LoginPage() {
               />
             </div>
 
-            <div className="flex items-start gap-2.5 pt-1">
+            <div className="flex items-center gap-2.5 pt-1">
               <input
                 id="rememberMe"
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-input accent-primary cursor-pointer"
+                className="h-4 w-4 rounded border-input accent-primary cursor-pointer"
               />
-              <div className="grid gap-0.5 leading-tight">
-                <Label htmlFor="rememberMe" className="cursor-pointer font-medium">
-                  Lembrar minha conta
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Se desmarcado, sua sessão expira automaticamente em 10 minutos.
-                </p>
-              </div>
+              <Label htmlFor="rememberMe" className="cursor-pointer font-medium">
+                Lembrar minha conta
+              </Label>
             </div>
           </CardContent>
 
