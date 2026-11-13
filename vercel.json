@@ -4,7 +4,7 @@
     "backend": {
       "root": "backend",
       "buildCommand": "npm run vercel-build",
-      "entrypoint": "api/index.ts",
+      "entrypoint": "dist/main.js",
       "rewrites": [
         {
           "source": "/api/:path(.*)?",
