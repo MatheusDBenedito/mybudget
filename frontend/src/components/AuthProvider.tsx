@@ -7,7 +7,10 @@ import {
   ACTIVE_WORKSPACE_STORAGE_KEY,
   API_BASE_URL,
   AUTH_TOKEN_STORAGE_KEY,
+  SESSION_EXPIRES_AT_STORAGE_KEY,
+  SHORT_SESSION_DURATION_MS,
   canAccessRoute,
+  getAuthStorageValue,
   hasAnyPermission as checkAnyPermission,
   hasPermission as checkPermission,
   isApiBackendUrl,
@@ -16,6 +19,7 @@ import {
   type AuthUser,
   type WorkspaceSummary,
 } from "@/lib/auth";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
 interface AuthContextValue {
@@ -26,7 +30,7 @@ interface AuthContextValue {
   loading: boolean;
   hasPermission: (code: string) => boolean;
   hasAnyPermission: (codes: readonly string[]) => boolean;
-  setSession: (payload: AuthSessionPayload) => void;
+  setSession: (payload: AuthSessionPayload, options?: { rememberMe?: boolean }) => void;
   refreshSession: () => Promise<void>;
   switchWorkspace: (workspaceId: string) => void;
   logout: () => void;
@@ -49,8 +53,8 @@ function ensureFetchPatched() {
       return originalFetch(input, init);
     }
 
-    const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-    const workspaceId = window.localStorage.getItem(ACTIVE_WORKSPACE_STORAGE_KEY);
+    const token = getAuthStorageValue(AUTH_TOKEN_STORAGE_KEY);
+    const workspaceId = getAuthStorageValue(ACTIVE_WORKSPACE_STORAGE_KEY);
 
     const headers = new Headers(
       init?.headers ?? (input instanceof Request ? input.headers : undefined),
@@ -96,6 +100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
       window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
+      window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+      window.sessionStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
+      window.sessionStorage.removeItem(SESSION_EXPIRES_AT_STORAGE_KEY);
     }
     setUser(null);
     setWorkspaces([]);
@@ -122,10 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const applyProfile = useCallback(
     (data: Omit<AuthSessionPayload, "accessToken">) => {
-      const storedWsId =
-        typeof window !== "undefined"
-          ? window.localStorage.getItem(ACTIVE_WORKSPACE_STORAGE_KEY)
-          : null;
+      const storedWsId = getAuthStorageValue(ACTIVE_WORKSPACE_STORAGE_KEY);
       const resolved = resolveActiveWorkspace(
         data.workspaces,
         storedWsId ?? data.activeWorkspace?.id ?? null,
@@ -133,7 +137,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
 
       if (typeof window !== "undefined" && resolved) {
-        window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, resolved.id);
+        const useSessionOnly = Boolean(window.sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY));
+        const targetStorage = useSessionOnly ? window.sessionStorage : window.localStorage;
+        targetStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, resolved.id);
       }
 
       setUser(data.user);
@@ -145,14 +151,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const setSession = useCallback(
-    (payload: AuthSessionPayload) => {
+    (payload: AuthSessionPayload, options?: { rememberMe?: boolean }) => {
+      const rememberMe = options?.rememberMe ?? true;
       if (typeof window !== "undefined") {
-        window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, payload.accessToken);
+        window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+        window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
+        window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+        window.sessionStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
+        window.sessionStorage.removeItem(SESSION_EXPIRES_AT_STORAGE_KEY);
+
+        const targetStorage = rememberMe ? window.localStorage : window.sessionStorage;
+        targetStorage.setItem(AUTH_TOKEN_STORAGE_KEY, payload.accessToken);
+        if (!rememberMe) {
+          window.sessionStorage.setItem(
+            SESSION_EXPIRES_AT_STORAGE_KEY,
+            String(Date.now() + SHORT_SESSION_DURATION_MS),
+          );
+        }
+
         const preferredId = payload.activeWorkspace?.id ?? payload.workspaces[0]?.id ?? null;
         if (preferredId) {
-          window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, preferredId);
-        } else {
-          window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
+          targetStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, preferredId);
         }
       }
       applyProfile(payload);
@@ -162,8 +181,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = useCallback(async () => {
     if (typeof window === "undefined") return;
-    const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+    const token = getAuthStorageValue(AUTH_TOKEN_STORAGE_KEY);
     if (!token) {
+      clearAuth();
+      setLoading(false);
+      return;
+    }
+
+    const expiresAtRaw = window.sessionStorage.getItem(SESSION_EXPIRES_AT_STORAGE_KEY);
+    if (expiresAtRaw && Number(expiresAtRaw) <= Date.now()) {
       clearAuth();
       setLoading(false);
       return;
@@ -186,8 +212,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     ensureFetchPatched();
-    void refreshSession();
+    const timer = window.setTimeout(() => {
+      void refreshSession();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [refreshSession]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !user) return;
+    const expiresAtRaw = window.sessionStorage.getItem(SESSION_EXPIRES_AT_STORAGE_KEY);
+    if (!expiresAtRaw) return;
+
+    const remainingMs = Number(expiresAtRaw) - Date.now();
+    if (remainingMs <= 0) {
+      Promise.resolve().then(() => {
+        clearAuth();
+        toast.info("Sessão expirada após 10 minutos.");
+        router.replace("/login");
+      });
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      clearAuth();
+      toast.info("Sessão expirada após 10 minutos.");
+      router.replace("/login");
+    }, remainingMs);
+
+    return () => window.clearTimeout(timer);
+  }, [clearAuth, router, user]);
 
   useEffect(() => {
     if (loading) return;
@@ -202,7 +255,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (workspaceId: string) => {
       const next = workspaces.find((w) => w.id === workspaceId);
       if (!next || typeof window === "undefined") return;
-      window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, next.id);
+      const useSessionOnly = Boolean(window.sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY));
+      const targetStorage = useSessionOnly ? window.sessionStorage : window.localStorage;
+      targetStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, next.id);
       setActiveWorkspace(next);
       window.location.reload();
     },

@@ -76,10 +76,18 @@ async function main() {
             await tx.user.deleteMany();
 
             // Restore auth, workspaces & RBAC in topological order
+            const existingPlans = await tx.plan.findMany({ select: { id: true, name: true } });
+            const validPlanIds = new Set(existingPlans.map((p) => p.id));
+            const fallbackPlanId =
+                existingPlans.find((p) => p.name.toLowerCase() === 'completo')?.id ??
+                existingPlans[0]?.id ??
+                null;
+
             if (d.users?.length) {
                 await tx.user.createMany({
                     data: d.users.map((r) => ({
                         ...r,
+                        planId: r.planId && validPlanIds.has(r.planId) ? r.planId : fallbackPlanId,
                         createdAt: toDate(r.createdAt) ?? new Date(),
                         updatedAt: toDate(r.updatedAt) ?? new Date(),
                     })),
@@ -126,7 +134,6 @@ async function main() {
                     data: d.workspaceUsers.map((r) => ({
                         ...r,
                         joinedAt: toDate(r.joinedAt) ?? new Date(),
-                        updatedAt: toDate(r.updatedAt) ?? new Date(),
                     })),
                 });
             }
@@ -308,7 +315,7 @@ async function main() {
                     })),
                 });
             }
-        });
+        }, { timeout: 60000 });
 
         console.log(`Carga restaurada com sucesso a partir de: ${inputPath} (exportado em ${backup.exportedAt})`);
     } finally {

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2, LogIn, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-import { API_BASE_URL } from "@/lib/auth";
+import { API_BASE_URL, REMEMBERED_LOGIN_STORAGE_KEY } from "@/lib/auth";
 import { useAuth } from "@/components/AuthProvider";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,18 @@ export default function LoginPage() {
   const { setSession } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(REMEMBERED_LOGIN_STORAGE_KEY);
+    if (!saved) return;
+    Promise.resolve().then(() => {
+      setEmail(saved);
+      setRememberMe(true);
+    });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,10 +40,11 @@ export default function LoginPage() {
 
     setSubmitting(true);
     try {
+      const trimmedEmail = email.trim();
       const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ email: trimmedEmail, password, rememberMe }),
       });
 
       const data = await res.json();
@@ -41,7 +53,15 @@ export default function LoginPage() {
         return;
       }
 
-      setSession(data);
+      if (typeof window !== "undefined") {
+        if (rememberMe) {
+          window.localStorage.setItem(REMEMBERED_LOGIN_STORAGE_KEY, trimmedEmail);
+        } else {
+          window.localStorage.removeItem(REMEMBERED_LOGIN_STORAGE_KEY);
+        }
+      }
+
+      setSession(data, { rememberMe });
       toast.success(`Bem-vindo(a), ${data.user.name}!`);
       router.replace("/");
     } catch {
@@ -90,6 +110,24 @@ export default function LoginPage() {
                 autoComplete="current-password"
                 required
               />
+            </div>
+
+            <div className="flex items-start gap-2.5 pt-1">
+              <input
+                id="rememberMe"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-input accent-primary cursor-pointer"
+              />
+              <div className="grid gap-0.5 leading-tight">
+                <Label htmlFor="rememberMe" className="cursor-pointer font-medium">
+                  Lembrar minha conta
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Se desmarcado, sua sessão expira automaticamente em 10 minutos.
+                </p>
+              </div>
             </div>
           </CardContent>
 
