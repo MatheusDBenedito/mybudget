@@ -36,6 +36,10 @@ export type ApiInvestment = {
     assetGainBrl?: number;
     fxGainBrl?: number;
     priceIsLive?: boolean;
+
+    // Linked bank/brokerage account for automatic dividend credits
+    accountId?: string | null;
+    account?: { id: string; name: string; currency: string } | null;
 };
 
 export const INVESTMENT_CLASSES: Record<InvestmentType, { title: string; icon: LucideIcon }> = {

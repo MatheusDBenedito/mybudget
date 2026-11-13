@@ -5,7 +5,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { UpdateTransactionStatusDto } from './dto/update-transaction-status.dto';
-import { buildTransactionInstallments } from './helpers/installment-transactions.helper';
+import {
+    buildTransactionInstallments,
+    shouldAdjustAccountBalanceForInstallment,
+} from './helpers/installment-transactions.helper';
 
 const seriesKey = (type: string, description: string) =>
     `${type}:${description.trim().toLocaleLowerCase('pt-BR')}`;
@@ -104,7 +107,7 @@ export class TransactionsService {
                     },
                 });
                 created.push(tx);
-                if (tx.status === 'PAID') {
+                if (shouldAdjustAccountBalanceForInstallment(tx.date, tx.status)) {
                     paidDelta += this.balanceDelta(tx.type, tx.amount);
                 }
             }

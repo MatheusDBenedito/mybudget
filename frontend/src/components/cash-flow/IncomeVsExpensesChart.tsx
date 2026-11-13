@@ -38,8 +38,8 @@ export function IncomeVsExpensesChart({ data, className }: { data: CashFlowData;
     }));
 
     return (
-        <div className={cn("h-full min-h-[180px] w-full flex-1", className)} role="img" aria-label="Gráfico de recebimentos e despesas nos próximos 12 meses, com o saldo projetado">
-            <ResponsiveContainer width="100%" height="100%">
+        <div className={cn("h-full min-h-[180px] min-w-0 w-full flex-1", className)} role="img" aria-label="Gráfico de recebimentos e despesas nos próximos 12 meses, com o saldo projetado">
+            <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 180 }}>
                 <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={2}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e3e5e9" vertical={false} />
                     <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#646a73" }} tickLine={false} axisLine={false} />

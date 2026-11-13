@@ -212,6 +212,7 @@ model Account {
   transactions Transaction[]
   creditCards  CreditCard[]
   recurringExpenses RecurringExpense[]
+  investments  Investment[]
 
   @@index([workspaceId])
 }
@@ -390,26 +391,33 @@ model Investment {
   // US stocks/ETFs: averagePrice/currentPrice are in USD
   purchaseExchangeRate Float?   // Cotação do dólar (BRL) usada na compra
 
+  accountId       String?
+  account         Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  accountLinkedAt DateTime?
+
   dividends      InvestmentDividend[]
 
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
   @@index([workspaceId, type])
+  @@index([accountId])
 }
 
 model InvestmentDividend {
-  id             String     @id @default(uuid())
-  investmentId   String
-  investment     Investment @relation(fields: [investmentId], references: [id], onDelete: Cascade)
-  tickerCode     String
-  date           DateTime
-  amountPerShare Float
-  quantity       Float
-  totalOriginal  Float
-  currency       String     @default("BRL")
-  totalBrl       Float
-  createdAt      DateTime   @default(now())
+  id                String     @id @default(uuid())
+  investmentId      String
+  investment        Investment @relation(fields: [investmentId], references: [id], onDelete: Cascade)
+  tickerCode        String
+  date              DateTime
+  amountPerShare    Float
+  quantity          Float
+  totalOriginal     Float
+  currency          String     @default("BRL")
+  totalBrl          Float
+  creditedAccountId String?
+  creditedAt        DateTime?
+  createdAt         DateTime   @default(now())
 
   @@unique([investmentId, date, amountPerShare])
   @@index([investmentId])

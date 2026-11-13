@@ -1,6 +1,7 @@
 import {
     addMonthsClamped,
     buildTransactionInstallments,
+    shouldAdjustAccountBalanceForInstallment,
 } from '../helpers/installment-transactions.helper';
 
 describe('installment-transactions.helper', () => {
@@ -84,6 +85,33 @@ describe('installment-transactions.helper', () => {
         expect(fortyEight[47].amount).toBe(1000);
         expect(fortyEight[47].date.getFullYear()).toBe(2030);
         expect(fortyEight[47].date.getMonth()).toBe(9); // Oct 2030
+    });
+
+    it('marks retroactive installments as PAID without deducting from the account balance', () => {
+        const today = new Date(2026, 10, 12, 23, 58, 0); // 12/11/2026
+        const startDate = new Date(2026, 9, 10, 12, 0, 0); // 10/10/2026
+
+        const drafts = buildTransactionInstallments({
+            description: 'Compra Parcelada',
+            amount: 2000,
+            date: startDate,
+            installments: 20,
+            today,
+        });
+
+        expect(drafts).toHaveLength(20);
+        // 10/10/2026 and 10/11/2026 are already PAID, but retroactive -> do not adjust account balance
+        expect(drafts[0].status).toBe('PAID');
+        expect(drafts[1].status).toBe('PAID');
+        expect(shouldAdjustAccountBalanceForInstallment(drafts[0].date, drafts[0].status, today)).toBe(false);
+        expect(shouldAdjustAccountBalanceForInstallment(drafts[1].date, drafts[1].status, today)).toBe(false);
+
+        // 10/12/2026 onwards are PENDING
+        expect(drafts[2].status).toBe('PENDING');
+        expect(shouldAdjustAccountBalanceForInstallment(drafts[2].date, drafts[2].status, today)).toBe(false);
+
+        // An installment dated today IS deducted
+        expect(shouldAdjustAccountBalanceForInstallment(new Date(2026, 10, 12, 12, 0, 0), 'PAID', today)).toBe(true);
     });
 });
 

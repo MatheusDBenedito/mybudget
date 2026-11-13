@@ -46,15 +46,17 @@ export function DonutChart({ data, centerLabel, emptyMessage, ariaLabel, stacked
     return (
         <div className={cn("min-h-0 flex-1", stacked ? "flex flex-col items-center justify-between gap-3" : "flex flex-col items-center justify-center gap-4 sm:flex-row")}>
             <div className={cn("relative shrink-0", dims.box)} role="img" aria-label={ariaLabel}>
-                <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                        <Pie data={slices} dataKey="value" nameKey="name" innerRadius={dims.inner} outerRadius={dims.outer} paddingAngle={slices.length > 1 ? 2 : 0} stroke="none" isAnimationActive={false}>
-                            {slices.map(s => <Cell key={s.name} fill={s.color} />)}
-                        </Pie>
-                        <Tooltip content={<SliceTooltip total={total} />} />
-                    </PieChart>
-                </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                <div className="relative z-10 h-full w-full min-w-0 min-h-0">
+                    <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 180, height: 180 }}>
+                        <PieChart>
+                            <Pie data={slices} dataKey="value" nameKey="name" innerRadius={dims.inner} outerRadius={dims.outer} paddingAngle={slices.length > 1 ? 2 : 0} stroke="none" isAnimationActive={false}>
+                                {slices.map(s => <Cell key={s.name} fill={s.color} />)}
+                            </Pie>
+                            <Tooltip content={<SliceTooltip total={total} />} wrapperStyle={{ zIndex: 30, pointerEvents: "none" }} />
+                        </PieChart>
+                    </ResponsiveContainer>
+                </div>
+                <div className="pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center px-3 text-center">
                     <span className="text-sm font-medium tabular-nums"><Money value={total} /></span>
                     <span className="text-[11px] text-muted-foreground">{centerLabel}</span>
                 </div>

@@ -14,6 +14,8 @@ export type ApiDividendInvestment = {
     investmentDate?: string | null;
     quantity?: number | null;
     investedAmount: number;
+    accountId?: string | null;
+    account?: { id: string; name: string; currency: string } | null;
 };
 
 export type ApiInvestmentDividend = {
@@ -28,6 +30,8 @@ export type ApiInvestmentDividend = {
     totalOriginal: number;
     currency: string;
     totalBrl: number;
+    creditedAccountId?: string | null;
+    creditedAt?: string | null;
     investment: ApiDividendInvestment;
 };
 

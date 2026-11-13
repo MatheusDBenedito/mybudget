@@ -1,11 +1,9 @@
 // Dashboard layout helpers. Pure functions (no React/aliases) so they can run under `node --test`.
 
 export const DASHBOARD_BLOCK_IDS = [
-    "forecast",
     "bills",
     "moneywhere",
     "cards",
-    "spending",
     "cashflow-chart",
     "investments-chart",
     "yields-projection",
@@ -28,22 +26,18 @@ export type DashboardLayoutItem = {
 };
 
 export const DASHBOARD_BLOCK_TITLES: Record<DashboardBlockId, string> = {
-    forecast: "Previsão do mês",
     bills: "Contas a pagar",
     moneywhere: "Onde está meu dinheiro",
     cards: "Cartões",
-    spending: "Gastos por categoria",
     "cashflow-chart": "Recebimentos x Despesas",
     "investments-chart": "Investimentos",
     "yields-projection": "Projeção de Rendimentos (12m)",
 };
 
 export const DEFAULT_LAYOUT: DashboardLayoutItem[] = [
-    { id: "forecast", width: 67, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "bills", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "moneywhere", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "cards", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
-    { id: "spending", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "yields-projection", width: 100, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "cashflow-chart", width: 67, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "investments-chart", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },

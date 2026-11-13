@@ -20,13 +20,13 @@ describe("normalizeLayout", () => {
     test("keeps the saved order, widths and heights (migrating legacy 12-col widths and sm/md/lg)", () => {
         const layout = normalizeLayout([
             { id: "bills", width: 12, height: "lg" },
-            { id: "forecast", width: 4, height: 385 },
+            { id: "moneywhere", width: 4, height: 385 },
             { id: "cards", width: 45 },
         ]);
 
         assert.deepEqual(layout.slice(0, 3), [
             { id: "bills", width: 100, height: 580 },
-            { id: "forecast", width: 33, height: 385 },
+            { id: "moneywhere", width: 33, height: 385 },
             { id: "cards", width: 45, height: DEFAULT_DASHBOARD_HEIGHT_PX },
         ]);
     });
@@ -44,12 +44,12 @@ describe("normalizeLayout", () => {
 
     test("drops unknown and duplicated blocks", () => {
         const layout = normalizeLayout([
-            { id: "forecast", width: 67, height: 500 },
-            { id: "forecast", width: 100, height: 600 },
+            { id: "moneywhere", width: 67, height: 500 },
+            { id: "moneywhere", width: 100, height: 600 },
             { id: "nope", width: 33, height: 400 },
         ]);
 
-        assert.equal(layout.filter(item => item.id === "forecast").length, 1);
+        assert.equal(layout.filter(item => item.id === "moneywhere").length, 1);
         assert.equal(layout[0].width, 67);
         assert.equal(layout[0].height, 500);
         assert.equal(layout.length, DEFAULT_LAYOUT.length);
@@ -70,7 +70,7 @@ describe("normalizeLayout", () => {
 
 describe("moveTo", () => {
     test("moves a block to the position of another one", () => {
-        const moved = moveTo(DEFAULT_LAYOUT, "investments-chart", "forecast");
+        const moved = moveTo(DEFAULT_LAYOUT, "investments-chart", "bills");
 
         assert.equal(moved[0].id, "investments-chart");
         assert.equal(moved.length, DEFAULT_LAYOUT.length);
@@ -78,8 +78,8 @@ describe("moveTo", () => {
     });
 
     test("ignores unknown ids or no-op moves", () => {
-        assert.equal(moveTo(DEFAULT_LAYOUT, "nope" as never, "forecast"), DEFAULT_LAYOUT);
-        assert.equal(moveTo(DEFAULT_LAYOUT, "forecast", "forecast"), DEFAULT_LAYOUT);
+        assert.equal(moveTo(DEFAULT_LAYOUT, "nope" as never, "bills"), DEFAULT_LAYOUT);
+        assert.equal(moveTo(DEFAULT_LAYOUT, "bills", "bills"), DEFAULT_LAYOUT);
     });
 });
 

@@ -762,9 +762,16 @@ export default function ProventosPage() {
                                                                 A receber
                                                             </span>
                                                         ) : (
-                                                            <span className="inline-flex items-center gap-1 rounded-full bg-positive-soft px-2 py-0.5 text-[10px] font-medium text-positive">
-                                                                Recebido
-                                                            </span>
+                                                            <div className="flex flex-col gap-0.5">
+                                                                <span className="inline-flex w-fit items-center gap-1 rounded-full bg-positive-soft px-2 py-0.5 text-[10px] font-medium text-positive">
+                                                                    Recebido
+                                                                </span>
+                                                                {div.creditedAt && div.investment.account?.name && (
+                                                                    <span className="text-[10px] text-muted-foreground">
+                                                                        Creditado em {div.investment.account.name}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         )}
                                                     </TableCell>
                                                     <TableCell className="py-2 text-right tabular-nums">
@@ -847,8 +854,8 @@ export default function ProventosPage() {
                             </div>
                         }
                     >
-                        <div className="h-[320px] w-full pt-2">
-                            <ResponsiveContainer width="100%" height="100%">
+                        <div className="h-[320px] min-w-0 w-full pt-2">
+                            <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 320 }}>
                                 <BarChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                                     <XAxis

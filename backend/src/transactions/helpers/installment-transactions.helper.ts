@@ -68,3 +68,19 @@ export function buildTransactionInstallments(input: InstallmentDraftInput): Inst
     });
 }
 
+/**
+ * Determines whether a newly created installment should immediately adjust the account balance.
+ * Retroactive installments (`parcelDate < start of today`) are already settled in the user's
+ * real-world balance, so they are recorded as `PAID` without deducting from the account again.
+ */
+export function shouldAdjustAccountBalanceForInstallment(
+    parcelDate: Date,
+    status: 'PAID' | 'PENDING' | 'CANCELLED',
+    today = new Date(),
+): boolean {
+    if (status !== 'PAID') return false;
+    const startOfToday = new Date(today.getTime());
+    startOfToday.setHours(0, 0, 0, 0);
+    return parcelDate >= startOfToday;
+}
+

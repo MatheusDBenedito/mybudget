@@ -1,9 +1,7 @@
 export const DASHBOARD_BLOCK_IDS = [
-    'forecast',
     'bills',
     'moneywhere',
     'cards',
-    'spending',
     'cashflow-chart',
     'investments-chart',
     'yields-projection',

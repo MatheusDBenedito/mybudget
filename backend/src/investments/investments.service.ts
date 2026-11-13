@@ -1,10 +1,16 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { CreateInvestmentDto } from './dto/create-investment.dto';
 import { UpdateInvestmentDto } from './dto/update-investment.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { Investment } from '@prisma/client';
 import { countBusinessDays } from './business-days.util';
 import { calculateInvestmentsProjection, InvestmentsProjectionResult } from './projections/investments-projection.calculator';
+import {
+    dividendKey,
+    ExistingDividendCredit,
+    planDividendCredits,
+    resolveAccountLinkUpdate,
+} from './helpers/dividend-credit.helper';
 
 interface CdiDayRate {
     date: string;   // "DD/MM/YYYY"
@@ -39,12 +45,16 @@ export class InvestmentsService {
     // In-memory cache for B3 stock prices
     private b3PriceCache: Map<string, number> = new Map();
     private b3CacheExpiry: number = 0;
+    private b3FetchInFlight: Promise<void> | null = null;
     private readonly B3_CACHE_TTL_MS = 1000 * 60 * 20; // 20 minutes
 
     // In-memory cache for Crypto prices (Binance / CoinGecko) keyed by uppercase ticker
     private cryptoPriceCache: Map<string, { brl: number; usd: number }> = new Map();
     private cryptoCacheExpiry: number = 0;
     private readonly CRYPTO_CACHE_TTL_MS = 1000 * 60 * 5; // 5 minutes
+
+    // Deduplicate concurrent findAll() calls per workspace (e.g. Resumo loading /investments + /projections + /cash-flow)
+    private findAllInFlight: Map<string, Promise<any[]>> = new Map();
 
     // In-memory cache for historical dividend events per ticker
     private dividendEventsCache: Map<string, { fetchedAt: number; events: Array<{ date: Date; amountPerShare: number }> }> = new Map();
@@ -101,6 +111,12 @@ export class InvestmentsService {
 
     async create(workspaceId: string, createInvestmentDto: CreateInvestmentDto) {
         const data: any = { ...createInvestmentDto, workspaceId };
+        const linkUpdate = resolveAccountLinkUpdate(data.accountId, null, null);
+        if (linkUpdate) {
+            await this.ensureAccountInWorkspace(workspaceId, linkUpdate.accountId);
+            data.accountId = linkUpdate.accountId;
+            data.accountLinkedAt = linkUpdate.accountLinkedAt;
+        }
         this.applyUsStockInvestedAmount(data);
         this.applyCryptoInvestedAmount(data);
         if (!data.currentValue) {
@@ -114,48 +130,80 @@ export class InvestmentsService {
         }
         const created = await this.prisma.investment.create({
             data,
+            include: {
+                account: { select: { id: true, name: true, currency: true } },
+            },
         });
         await this.syncDividendsForInvestment(created);
         return created;
     }
 
     async findAll(workspaceId: string) {
+        const existing = this.findAllInFlight.get(workspaceId);
+        if (existing) return existing;
+
+        const run = this.findAllInternal(workspaceId).finally(() => {
+            this.findAllInFlight.delete(workspaceId);
+        });
+        this.findAllInFlight.set(workspaceId, run);
+        return run;
+    }
+
+    private async findAllInternal(workspaceId: string) {
         const investments = await this.prisma.investment.findMany({
             where: { workspaceId },
+            include: {
+                account: { select: { id: true, name: true, currency: true } },
+            },
             orderBy: { createdAt: 'desc' },
         });
 
-        // Fetch live B3 prices for variable income and FII investments
-        const variableInvs = investments.filter(
-            i => (i.type === 'VARIABLE_INCOME' || i.type === 'FII') && i.tickerCode,
-        );
-        if (variableInvs.length > 0) {
-            const tickers = [...new Set(variableInvs.map(i => i.tickerCode!).filter(Boolean))];
-            await this.fetchB3Prices(tickers);
-        }
-
-        // Fetch live Crypto prices and USD rate
-        const cryptoInvs = investments.filter(i => i.type === 'CRYPTO' && i.tickerCode);
-        if (cryptoInvs.length > 0) {
-            const tickers = [...new Set(cryptoInvs.map(i => i.tickerCode!).filter(Boolean))];
-            await this.fetchUsdRate();
-            await this.fetchCryptoPrices(tickers);
-        }
-
-        // Fetch live US prices and the current dollar rate
-        const usInvs = investments.filter(i => i.type === 'US_STOCK' && i.tickerCode);
-        if (usInvs.length > 0) {
-            const tickers = [...new Set(usInvs.map(i => i.tickerCode!).filter(Boolean))];
-            await Promise.all([this.fetchUsPrices(tickers), this.fetchUsdRate()]);
-        }
-
-        // Load CDI once for the oldest fixed income investment so every enrichment shares the same cache
+        const variableTickers = [
+            ...new Set(
+                investments
+                    .filter(i => (i.type === 'VARIABLE_INCOME' || i.type === 'FII') && i.tickerCode)
+                    .map(i => i.tickerCode!)
+                    .filter(Boolean),
+            ),
+        ];
+        const cryptoTickers = [
+            ...new Set(
+                investments
+                    .filter(i => i.type === 'CRYPTO' && i.tickerCode)
+                    .map(i => i.tickerCode!)
+                    .filter(Boolean),
+            ),
+        ];
+        const usTickers = [
+            ...new Set(
+                investments
+                    .filter(i => i.type === 'US_STOCK' && i.tickerCode)
+                    .map(i => i.tickerCode!)
+                    .filter(Boolean),
+            ),
+        ];
         const fixedDates = investments
             .filter(i => i.type === 'FIXED_INCOME' && i.investmentDate && i.cdiPercentage)
             .map(i => new Date(i.investmentDate!).getTime());
-        if (fixedDates.length > 0) {
-            await this.ensureCdiRates(new Date(Math.min(...fixedDates)), new Date());
+
+        const tasks: Promise<unknown>[] = [];
+        if (variableTickers.length > 0) {
+            tasks.push(this.fetchB3Prices(variableTickers));
         }
+        if (cryptoTickers.length > 0 || usTickers.length > 0) {
+            tasks.push(this.fetchUsdRate());
+        }
+        if (cryptoTickers.length > 0) {
+            tasks.push(this.fetchCryptoPrices(cryptoTickers));
+        }
+        if (usTickers.length > 0) {
+            tasks.push(this.fetchUsPrices(usTickers));
+        }
+        if (fixedDates.length > 0) {
+            tasks.push(this.ensureCdiRates(new Date(Math.min(...fixedDates)), new Date()));
+        }
+
+        await Promise.all(tasks);
 
         return Promise.all(investments.map(inv => this.enrichInvestment(inv)));
     }
@@ -163,6 +211,9 @@ export class InvestmentsService {
     async findOne(workspaceId: string, id: string) {
         const investment = await this.prisma.investment.findFirst({
             where: { id, workspaceId },
+            include: {
+                account: { select: { id: true, name: true, currency: true } },
+            },
         });
         if (!investment) {
             throw new NotFoundException(`Investment with ID ${id} not found`);
@@ -185,6 +236,16 @@ export class InvestmentsService {
         }
 
         const data: any = { ...updateInvestmentDto };
+        const linkUpdate = resolveAccountLinkUpdate(
+            data.accountId,
+            existing.accountId,
+            existing.accountLinkedAt,
+        );
+        if (linkUpdate) {
+            await this.ensureAccountInWorkspace(workspaceId, linkUpdate.accountId);
+            data.accountId = linkUpdate.accountId;
+            data.accountLinkedAt = linkUpdate.accountLinkedAt;
+        }
         if (data.investmentDate) {
             data.investmentDate = new Date(data.investmentDate);
         }
@@ -195,6 +256,9 @@ export class InvestmentsService {
         const updated = await this.prisma.investment.update({
             where: { id },
             data,
+            include: {
+                account: { select: { id: true, name: true, currency: true } },
+            },
         });
         if ((updated.type === 'VARIABLE_INCOME' || updated.type === 'FII') && updated.tickerCode) {
             await this.fetchB3Prices([updated.tickerCode]);
@@ -376,61 +440,75 @@ export class InvestmentsService {
      * Fetches current stock prices from brapi.dev (B3) with 20-min cache.
      */
     private async fetchB3Prices(tickers: string[]): Promise<void> {
+        if (this.b3FetchInFlight) {
+            await this.b3FetchInFlight;
+        }
+
+        const normalized = [...new Set(tickers.map(t => t.trim().toUpperCase()).filter(Boolean))];
+        if (normalized.length === 0) return;
+
+        let toFetch = normalized;
         // Check cache
         if (this.b3PriceCache.size > 0 && Date.now() < this.b3CacheExpiry) {
             // Only fetch tickers not in cache
-            const missing = tickers.filter(t => !this.b3PriceCache.has(t.toUpperCase()));
+            const missing = normalized.filter(t => !this.b3PriceCache.has(t));
             if (missing.length === 0) return;
-            tickers = missing;
+            toFetch = missing;
         }
 
         const token = process.env.BRAPI_TOKEN;
         if (!token) {
-            this.logger.warn(`BRAPI_TOKEN is not set in .env. Automatic price updates for ${tickers.length} tickers will be skipped.`);
+            this.logger.warn(`BRAPI_TOKEN is not set in .env. Automatic price updates for ${toFetch.length} tickers will be skipped.`);
             return;
         }
 
-        // The free tier of brapi.dev allows querying ONLY 1 asset per request and
-        // rate-limits bursts, so tickers are fetched one at a time with a short pause.
-        for (const [index, ticker] of tickers.entries()) {
-            if (index > 0) {
-                await this.sleep(this.BRAPI_REQUEST_INTERVAL_MS);
-            }
-            const url = `https://brapi.dev/api/quote/${ticker}?token=${token}`;
-            try {
-                let response = await fetch(url);
-                if (response.status === 429) {
-                    this.logger.warn(`brapi.dev rate limit for ${ticker}, retrying in ${this.BRAPI_RETRY_DELAY_MS}ms`);
-                    await this.sleep(this.BRAPI_RETRY_DELAY_MS);
-                    response = await fetch(url);
+        this.b3FetchInFlight = (async () => {
+            // The free tier of brapi.dev allows querying ONLY 1 asset per request and
+            // rate-limits bursts, so tickers are fetched one at a time with a short pause.
+            for (const [index, ticker] of toFetch.entries()) {
+                if (index > 0) {
+                    await this.sleep(this.BRAPI_REQUEST_INTERVAL_MS);
                 }
-                if (response.status === 401 || response.status === 403) {
-                    this.logger.error(`Invalid or expired BRAPI_TOKEN for ticker ${ticker}.`);
-                    continue;
-                }
-                if (!response.ok) {
-                    this.logger.warn(`brapi.dev returned ${response.status} for ${ticker}`);
-                    continue;
-                }
+                const url = `https://brapi.dev/api/quote/${ticker}?token=${token}`;
+                try {
+                    let response = await fetch(url);
+                    if (response.status === 429) {
+                        this.logger.warn(`brapi.dev rate limit for ${ticker}, retrying in ${this.BRAPI_RETRY_DELAY_MS}ms`);
+                        await this.sleep(this.BRAPI_RETRY_DELAY_MS);
+                        response = await fetch(url);
+                    }
+                    if (response.status === 401 || response.status === 403) {
+                        this.logger.error(`Invalid or expired BRAPI_TOKEN for ticker ${ticker}.`);
+                        continue;
+                    }
+                    if (!response.ok) {
+                        this.logger.warn(`brapi.dev returned ${response.status} for ${ticker}`);
+                        continue;
+                    }
 
-                const data = await response.json();
-                this.logger.log(`Brapi response for ${ticker}: ${JSON.stringify(data).substring(0, 100)}...`);
-                if (data.results && Array.isArray(data.results)) {
-                    for (const result of data.results) {
-                        if (result.symbol && result.regularMarketPrice != null) {
-                            this.logger.log(`Caching ${result.symbol.toUpperCase()} as ${result.regularMarketPrice}`);
-                            this.b3PriceCache.set(result.symbol.toUpperCase(), result.regularMarketPrice);
-                        } else {
-                            this.logger.warn(`No regularMarketPrice for ${result.symbol}`);
+                    const data = await response.json();
+                    this.logger.log(`Brapi response for ${ticker}: ${JSON.stringify(data).substring(0, 100)}...`);
+                    if (data.results && Array.isArray(data.results)) {
+                        for (const result of data.results) {
+                            if (result.symbol && result.regularMarketPrice != null) {
+                                this.logger.log(`Caching ${result.symbol.toUpperCase()} as ${result.regularMarketPrice}`);
+                                this.b3PriceCache.set(result.symbol.toUpperCase(), result.regularMarketPrice);
+                            } else {
+                                this.logger.warn(`No regularMarketPrice for ${result.symbol}`);
+                            }
                         }
                     }
+                } catch (error) {
+                    this.logger.warn(`Failed to fetch B3 price for ${ticker}: ${error.message}`);
                 }
-            } catch (error) {
-                this.logger.warn(`Failed to fetch B3 price for ${ticker}: ${error.message}`);
             }
-        }
 
-        this.b3CacheExpiry = Date.now() + this.B3_CACHE_TTL_MS;
+            this.b3CacheExpiry = Date.now() + this.B3_CACHE_TTL_MS;
+        })().finally(() => {
+            this.b3FetchInFlight = null;
+        });
+
+        return this.b3FetchInFlight;
     }
 
     private sleep(ms: number): Promise<void> {
@@ -773,6 +851,9 @@ export class InvestmentsService {
     async findAllDividends(workspaceId: string) {
         const investments = await this.prisma.investment.findMany({
             where: { workspaceId },
+            include: {
+                account: { select: { id: true, name: true, currency: true } },
+            },
             orderBy: { investmentDate: 'asc' },
         });
 
@@ -795,6 +876,8 @@ export class InvestmentsService {
                         investmentDate: true,
                         quantity: true,
                         investedAmount: true,
+                        accountId: true,
+                        account: { select: { id: true, name: true, currency: true } },
                     },
                 },
             },
@@ -812,6 +895,8 @@ export class InvestmentsService {
                 investmentDate: inv.investmentDate,
                 quantity: inv.quantity,
                 investedAmount: inv.investedAmount,
+                accountId: inv.accountId,
+                account: inv.account,
             })),
         };
     }
@@ -880,14 +965,66 @@ export class InvestmentsService {
                 };
             });
 
-        await this.prisma.$transaction([
-            this.prisma.investmentDividend.deleteMany({ where: { investmentId: inv.id } }),
-            ...(matchingRows.length > 0
-                ? [this.prisma.investmentDividend.createMany({ data: matchingRows, skipDuplicates: true })]
-                : []),
-        ]);
+        const existingRows = await this.prisma.investmentDividend.findMany({
+            where: { investmentId: inv.id },
+            select: {
+                date: true,
+                amountPerShare: true,
+                creditedAccountId: true,
+                creditedAt: true,
+            },
+        });
+        const existingByKey = new Map<string, ExistingDividendCredit>(
+            existingRows.map(r => [
+                dividendKey(r.date, r.amountPerShare),
+                { creditedAccountId: r.creditedAccountId, creditedAt: r.creditedAt },
+            ]),
+        );
+
+        const linkedAccount = inv.accountId
+            ? await this.prisma.account.findFirst({
+                  where: { id: inv.accountId, workspaceId: inv.workspaceId },
+                  select: { id: true, currency: true },
+              })
+            : null;
+
+        const plan = planDividendCredits({
+            rows: matchingRows,
+            existingByKey,
+            account: linkedAccount,
+            accountLinkedAt: inv.accountLinkedAt ?? null,
+            usdRate: this.usdRate ?? inv.purchaseExchangeRate ?? 5.6,
+            now,
+        });
+
+        await this.prisma.$transaction(async tx => {
+            await tx.investmentDividend.deleteMany({ where: { investmentId: inv.id } });
+            if (plan.rows.length > 0) {
+                await tx.investmentDividend.createMany({ data: plan.rows, skipDuplicates: true });
+            }
+            if (linkedAccount && plan.newlyCreditedCount > 0 && (plan.brlDelta > 0 || plan.usdDelta > 0)) {
+                await tx.account.update({
+                    where: { id: linkedAccount.id },
+                    data: {
+                        ...(plan.brlDelta > 0 ? { balance: { increment: plan.brlDelta } } : {}),
+                        ...(plan.usdDelta > 0 ? { balanceUsd: { increment: plan.usdDelta } } : {}),
+                    },
+                });
+            }
+        });
 
         this.syncedInvestmentIds.add(inv.id);
+    }
+
+    private async ensureAccountInWorkspace(workspaceId: string, accountId: string | null): Promise<void> {
+        if (!accountId) return;
+        const account = await this.prisma.account.findFirst({
+            where: { id: accountId, workspaceId },
+            select: { id: true },
+        });
+        if (!account) {
+            throw new BadRequestException(`Account ${accountId} not found in this workspace`);
+        }
     }
 
     private async fetchTickerDividendEvents(

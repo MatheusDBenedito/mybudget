@@ -50,4 +50,8 @@ export class CreateInvestmentDto {
     @IsOptional()
     @IsNumber()
     purchaseExchangeRate?: number;
+
+    @IsOptional()
+    @IsString()
+    accountId?: string | null;
 }

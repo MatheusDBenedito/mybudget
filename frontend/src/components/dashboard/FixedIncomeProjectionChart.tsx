@@ -38,8 +38,8 @@ export function FixedIncomeProjectionChart({ points }: { points: FixedIncomeProj
     const min = Math.min(...points.map(p => p.invested)) * 0.98;
 
     return (
-        <div className="h-[240px] w-full" role="img" aria-label="Projeção do valor bruto e líquido da renda fixa para os próximos 12 meses">
-            <ResponsiveContainer width="100%" height="100%">
+        <div className="h-[240px] min-w-0 w-full" role="img" aria-label="Projeção do valor bruto e líquido da renda fixa para os próximos 12 meses">
+            <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 240 }}>
                 <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <defs>
                         <linearGradient id="fixedIncomeNet" x1="0" y1="0" x2="0" y2="1">

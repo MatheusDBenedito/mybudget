@@ -49,6 +49,7 @@ const investmentSchema = z.object({
     currentPrice: z.number().optional(),
     quantity: z.number().optional(),
     purchaseExchangeRate: z.number().optional(),
+    accountId: z.string().optional(),
 }).superRefine((data, ctx) => {
     if (data.type === "FIXED_INCOME") {
         if (!data.investmentDate) {
@@ -143,11 +144,13 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
             currentPrice: 0,
             quantity: 0,
             purchaseExchangeRate: 0,
+            accountId: "NONE",
         },
     });
     const [isFetchingRate, setIsFetchingRate] = useState(false);
     const [cryptoCurrency, setCryptoCurrency] = useState<"BRL" | "USD">("USD");
     const [liveUsdRate, setLiveUsdRate] = useState<number>(5.64);
+    const [accounts, setAccounts] = useState<Array<{ id: string; name: string; currency: string }>>([]);
 
     useEffect(() => {
         if (!open) return;
@@ -157,7 +160,15 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
                 const bid = Number(d?.USDBRL?.bid);
                 if (bid > 0) setLiveUsdRate(bid);
             })
-            .catch(() => {});
+            .catch(() => { });
+        fetch(`${API_BASE_URL}/accounts`)
+            .then(r => (r.ok ? r.json() : []))
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setAccounts(data);
+                }
+            })
+            .catch(() => { });
     }, [open]);
 
     useEffect(() => {
@@ -182,6 +193,7 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
                 currentPrice: investmentToEdit.currentPrice || 0,
                 quantity: investmentToEdit.quantity || 0,
                 purchaseExchangeRate: investmentToEdit.purchaseExchangeRate || 0,
+                accountId: investmentToEdit.accountId || "NONE",
             });
         } else if (open && !investmentToEdit && prefillAsset) {
             const isCryptoUsd = prefillAsset.type === "CRYPTO" && (
@@ -202,6 +214,7 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
                 currentPrice: prefillAsset.currentPrice || 0,
                 quantity: 0,
                 purchaseExchangeRate: prefillAsset.currentExchangeRate || prefillAsset.purchaseExchangeRate || 0,
+                accountId: prefillAsset.accountId || "NONE",
             });
         } else if (open && !investmentToEdit) {
             setCryptoCurrency("USD");
@@ -218,6 +231,7 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
                 currentPrice: 0,
                 quantity: 0,
                 purchaseExchangeRate: 0,
+                accountId: "NONE",
             });
         }
     }, [investmentToEdit, prefillAsset, open, form]);
@@ -297,6 +311,10 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
                 // BRL cost; the backend recomputes it the same way
                 bodyData.investedAmount = Number(data.averagePrice) * Number(data.quantity) * Number(data.purchaseExchangeRate);
                 bodyData.currentValue = bodyData.investedAmount as number;
+            }
+
+            if (data.type === "VARIABLE_INCOME" || data.type === "FII" || data.type === "US_STOCK" || data.type === "CRYPTO") {
+                bodyData.accountId = data.accountId && data.accountId !== "NONE" ? data.accountId : null;
             }
 
             const method = investmentToEdit ? "PATCH" : "POST";
@@ -584,22 +602,20 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
                                         <button
                                             type="button"
                                             onClick={() => setCryptoCurrency("USD")}
-                                            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                                                cryptoCurrency === "USD"
+                                            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${cryptoCurrency === "USD"
                                                     ? "bg-primary text-primary-foreground shadow-sm"
                                                     : "text-muted-foreground hover:text-foreground"
-                                            }`}
+                                                }`}
                                         >
                                             US$ (Padrão Binance)
                                         </button>
                                         <button
                                             type="button"
                                             onClick={() => setCryptoCurrency("BRL")}
-                                            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                                                cryptoCurrency === "BRL"
+                                            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${cryptoCurrency === "BRL"
                                                     ? "bg-primary text-primary-foreground shadow-sm"
                                                     : "text-muted-foreground hover:text-foreground"
-                                            }`}
+                                                }`}
                                         >
                                             R$ (Reais)
                                         </button>
@@ -843,6 +859,40 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
                                     )}
                                 />
                             </div>
+                        )}
+
+                        {(watchType === "VARIABLE_INCOME" || watchType === "FII" || watchType === "US_STOCK" || watchType === "CRYPTO") && (
+                            <FormField
+                                control={form.control}
+                                name="accountId"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Conta para proventos (opcional)</FormLabel>
+                                        <Select
+                                            onValueChange={field.onChange}
+                                            value={field.value || "NONE"}
+                                        >
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Selecione uma conta" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                <SelectItem value="NONE">Sem conta vinculada</SelectItem>
+                                                {accounts.map((acc) => (
+                                                    <SelectItem key={acc.id} value={acc.id}>
+                                                        {acc.name} ({acc.currency})
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <p className="text-[11px] text-muted-foreground">
+                                            Proventos recebidos a partir de hoje serão creditados automaticamente nesta conta.
+                                        </p>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
                         )}
 
                         <div className="flex justify-end pt-4">

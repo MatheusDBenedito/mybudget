@@ -53,20 +53,22 @@ export function MoneyWhereCard({
     height?: number;
     className?: string;
 }) {
-    const accountGross = (a: DashAccount) => a.grossBalance ?? a.balance;
-    const accountFreeGross = (a: DashAccount) => a.freeGrossBalance ?? a.freeBalance ?? a.balance;
-    const potGross = (p: { balance: number; grossBalance?: number }) => p.grossBalance ?? p.balance;
+    const accountFree = (a: DashAccount) => a.freeBalance ?? a.balance;
+    const potBalance = (p: { balance: number }) => p.balance;
+    const accountTotal = (a: DashAccount) =>
+        a.type === "YIELDING"
+            ? accountFree(a) + (a.pots ?? []).reduce((s, p) => s + potBalance(p), 0)
+            : a.balance;
 
     const sums = {
-        checking: accounts.filter(a => a.type !== "YIELDING").reduce((acc, a) => acc + accountGross(a), 0),
-        free: accounts.filter(a => a.type === "YIELDING").reduce((acc, a) => acc + accountFreeGross(a), 0),
-        pots: accounts.reduce((acc, a) => acc + (a.pots ?? []).reduce((s, p) => s + potGross(p), 0), 0),
+        checking: accounts.filter(a => a.type !== "YIELDING").reduce((acc, a) => acc + accountTotal(a), 0),
+        free: accounts.filter(a => a.type === "YIELDING").reduce((acc, a) => acc + accountFree(a), 0),
+        pots: accounts.reduce((acc, a) => acc + (a.pots ?? []).reduce((s, p) => s + potBalance(p), 0), 0),
         investments,
     };
 
     const grossTotal = sums.checking + sums.free + sums.pots + sums.investments;
-    const accountsTax = accounts.reduce((acc, a) => acc + (a.taxAmount ?? 0), 0);
-    const totalTax = accountsTax + investmentsTax;
+    const totalTax = investmentsTax;
     const netTotal = grossTotal - totalTax;
 
     const pct = (v: number) => (grossTotal > 0 ? Math.max((v / grossTotal) * 100, 0) : 0);
@@ -92,15 +94,9 @@ export function MoneyWhereCard({
                     <p className="mb-2 font-semibold text-foreground">Resumo Bruto vs. Líquido</p>
                     <dl className="space-y-1.5">
                         <div className="flex items-center justify-between">
-                            <dt className="text-muted-foreground">Valor bruto total</dt>
+                            <dt className="text-muted-foreground">Total (contas + invest. bruto)</dt>
                             <dd className="font-medium tabular-nums"><Money value={grossTotal} /></dd>
                         </div>
-                        {accountsTax > 0 && (
-                            <div className="flex items-center justify-between text-[11px]">
-                                <dt className="text-muted-foreground">(-) IR Contas / Cofrinhos</dt>
-                                <dd className="text-negative tabular-nums">-<Money value={accountsTax} /></dd>
-                            </div>
-                        )}
                         {investmentsTax > 0 && (
                             <div className="flex items-center justify-between text-[11px]">
                                 <dt className="text-muted-foreground">(-) IR Investimentos</dt>
@@ -131,7 +127,7 @@ export function MoneyWhereCard({
     return (
         <DashCard
             title="Onde está o dinheiro"
-            subtitle="Valores brutos em contas, cofrinhos e investimentos"
+            subtitle="Saldos em contas, cofrinhos e investimentos"
             actions={topRightActions}
             className={cn(cardSize, className)}
         >
@@ -159,11 +155,11 @@ export function MoneyWhereCard({
                     ))}
                 </dl>
 
-                <p className="mb-1 mt-3 text-xs font-semibold">Por conta (bruto)</p>
+                <p className="mb-1 mt-3 text-xs font-semibold">Por conta</p>
             </div>
             <ul className="min-h-0 flex-1 divide-y overflow-y-auto pr-1 text-sm">
                 {accounts.map(a => {
-                    const gross = accountGross(a);
+                    const total = accountTotal(a);
                     return (
                         <li key={a.id} className="py-2">
                             <div className="flex items-center justify-between gap-2">
@@ -176,8 +172,8 @@ export function MoneyWhereCard({
                                         </span>
                                     )}
                                 </span>
-                                <span className={cn("font-semibold tabular-nums", gross < 0 && "text-negative")}>
-                                    <Money value={gross} />
+                                <span className={cn("font-semibold tabular-nums", total < 0 && "text-negative")}>
+                                    <Money value={total} />
                                 </span>
                             </div>
                             {a.currency === "USD" && a.investedBrl != null && (
@@ -193,10 +189,16 @@ export function MoneyWhereCard({
                                     </span>
                                 </div>
                             )}
+                            {a.type === "YIELDING" && (a.pots ?? []).length > 0 && (
+                                <div className="mt-1 flex items-center justify-between gap-2 pl-4 text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1.5 truncate"><Wallet className="h-3 w-3" aria-hidden />Saldo livre</span>
+                                    <span className="tabular-nums"><Money value={accountFree(a)} /></span>
+                                </div>
+                            )}
                             {(a.pots ?? []).map(p => (
                                 <div key={p.id} className="mt-1 flex items-center justify-between gap-2 pl-4 text-xs text-muted-foreground">
                                     <span className="flex items-center gap-1.5 truncate"><PiggyBank className="h-3 w-3" aria-hidden />{p.name}</span>
-                                    <span className="tabular-nums"><Money value={potGross(p)} /></span>
+                                    <span className="tabular-nums"><Money value={potBalance(p)} /></span>
                                 </div>
                             ))}
                         </li>

@@ -10,16 +10,14 @@ import { Panel } from "@/components/Panel";
 import { PageHeader, MonthNavigator } from "@/components/PageHeader";
 import { IncomeVsExpensesChart } from "@/components/cash-flow/IncomeVsExpensesChart";
 import { DonutChart, type DonutSlice } from "@/components/dashboard/DonutChart";
-import { ForecastCard } from "@/components/dashboard/ForecastCard";
 import { BillsCard } from "@/components/dashboard/BillsCard";
 import { CardsCard, type DashCreditCard } from "@/components/dashboard/CardsCard";
 import { MoneyWhereCard, type DashAccount } from "@/components/dashboard/MoneyWhereCard";
-import { SpendingCard, type CategorySpend } from "@/components/dashboard/SpendingCard";
 import { YieldsProjectionCard, type InvestmentsProjectionData } from "@/components/dashboard/YieldsProjectionCard";
 import { type ApiInvestment, INVESTMENT_CLASSES, CLASS_ORDER, currentValueOf, grossValueOf, taxAmountOf } from "@/lib/investments";
 import { CHART_PALETTE } from "@/lib/charts";
 import type { CashFlowData } from "@/lib/cash-flow";
-import { billsByDay, budgetBreakdown, defaultBillDay } from "@/lib/dashboard";
+import { billsByDay, defaultBillDay } from "@/lib/dashboard";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { useDashboardLayout } from "@/components/dashboard/useDashboardLayout";
 import type { DashboardBlockId, DashboardLayoutItem } from "@/lib/dashboard-layout";
@@ -34,8 +32,6 @@ type ApiTransaction = {
   status: "PAID" | "PENDING" | "CANCELLED";
 };
 
-type ApiCategory = { id: string; name: string; icon?: string | null };
-type ExpenseByCategory = { category: string; color: string | null; total: number };
 
 const linkPill = "inline-flex h-8 items-center gap-1.5 rounded-full border px-4 text-xs font-medium hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring";
 
@@ -47,8 +43,6 @@ export default function DashboardPage() {
   const [accounts, setAccounts] = useState<DashAccount[]>([]);
   const [investments, setInvestments] = useState<ApiInvestment[]>([]);
   const [cards, setCards] = useState<DashCreditCard[]>([]);
-  const [categories, setCategories] = useState<ApiCategory[]>([]);
-  const [expensesByCategory, setExpensesByCategory] = useState<ExpenseByCategory[]>([]);
   const [cashFlow, setCashFlow] = useState<CashFlowData | null>(null);
   const [projections, setProjections] = useState<InvestmentsProjectionData | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -86,20 +80,16 @@ export default function DashboardPage() {
     };
     void Promise.all([
       get(`/transactions?month=${month}&year=${year}`, setTransactions),
-      get(`/reports/expenses-by-category?month=${month}&year=${year}`, setExpensesByCategory),
       get(`/cash-flow?month=${month}&year=${year}&months=12`, setCashFlow),
       get(`/investments/projections?month=${month}&year=${year}&months=12`, setProjections),
       get("/accounts", setAccounts),
       get("/investments", setInvestments),
       get("/credit-cards", setCards),
-      get("/categories", setCategories),
     ]);
     return () => { cancelled = true; };
   }, [month, year, reloadKey]);
 
   const monthRef = { year, month };
-  const breakdown = useMemo(() => (cashFlow ? budgetBreakdown(cashFlow) : null), [cashFlow]);
-  const projectedBalance = cashFlow?.summary.projectedBalance[0] ?? null;
   const days = useMemo(() => billsByDay(transactions, cards, cashFlow, { year, month }), [transactions, cards, cashFlow, year, month]);
   const investmentsGross = investments.reduce((acc, i) => acc + grossValueOf(i), 0);
   const investmentsTax = investments.reduce((acc, i) => acc + taxAmountOf(i), 0);
@@ -110,10 +100,6 @@ export default function DashboardPage() {
     [cards],
   );
 
-  const spending: CategorySpend[] = expensesByCategory.map(c => ({
-    ...c,
-    icon: categories.find(cat => cat.name === c.category)?.icon ?? null,
-  }));
 
   const investmentSlices: DonutSlice[] = CLASS_ORDER.map((key, i) => ({
     name: INVESTMENT_CLASSES[key].title,
@@ -124,16 +110,12 @@ export default function DashboardPage() {
   // One entry per configurable block; the grid decides order, width and height
   const renderWidget = (id: DashboardBlockId, item: DashboardLayoutItem): ReactNode => {
     switch (id) {
-      case "forecast":
-        return <ForecastCard breakdown={breakdown} projectedBalance={projectedBalance} height={item.height} />;
       case "bills":
         return <BillsCard days={days} defaultDay={defaultBillDay(days, monthRef)} month={monthRef} height={item.height} />;
       case "moneywhere":
         return <MoneyWhereCard accounts={accounts} investments={investmentsGross} investmentsTax={investmentsTax} height={item.height} />;
       case "cards":
         return <CardsCard key={`${year}-${month}`} cards={orderedCards} data={cashFlow} height={item.height} />;
-      case "spending":
-        return <SpendingCard categories={spending} income={breakdown?.income ?? 0} height={item.height} />;
       case "yields-projection":
         return <YieldsProjectionCard projection={projections} height={item.height} />;
       case "cashflow-chart":
