@@ -170,6 +170,7 @@ export class AccountYieldService implements OnModuleInit, OnModuleDestroy {
                     startKey, todayKey, cdiPercentage, cdiDays, movements,
                     openingBalance: openingBalanceFor(startKey, currentBalance, movements, creditedTotal),
                     creditedKeys: new Set(bucketCredits.map(c => dayKeyOf(c.date))),
+                    hasIof: account.hasIof,
                 }),
             };
         };

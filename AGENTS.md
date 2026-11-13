@@ -10,4 +10,5 @@ Antes de planejar ou implementar qualquer alteração neste repositório (`myBud
    - Frontend: `cd frontend && node --test src/lib/*.test.ts` e `npm run build` (e `npx eslint` nos arquivos alterados).
    - Backend: `cd backend && npm run build` e `npx jest` nos módulos afetados.
 5. **Atualização contínua:** sempre que concluir uma nova funcionalidade, alteração de schema/API ou mudança relevante de comportamento, atualize o `PROJECT_CONTEXT.md` para mantê-lo sincronizado para as próximas execuções.
+6. **Rotina Git (`dev` -> nova branch):** ao concluir uma entrega ou antes de iniciar uma nova funcionalidade/estudo, commitar as alterações validadas na branch `dev` e criar/alternar para uma nova branch temática (ex.: `feat/...`, `fix/...`, `study/...`).
 

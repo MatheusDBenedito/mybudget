@@ -28,6 +28,7 @@ export type AccountLike = {
     variationPct?: number;
     type?: AccountType;
     cdiPercentage?: number | null;
+    hasIof?: boolean;
     /** Balance outside the cofrinhos (yielding accounts) */
     freeBalance?: number;
 };

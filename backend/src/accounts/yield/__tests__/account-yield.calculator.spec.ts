@@ -1,5 +1,5 @@
 import {
-    bcbDateToKey, daysBetween, firstYieldDay, irRateForDays, openingBalanceFor, simulateBucket, toDateKey, type DailyCdi,
+    bcbDateToKey, daysBetween, firstYieldDay, iofRateForDays, irRateForDays, openingBalanceFor, simulateBucket, toDateKey, type DailyCdi,
 } from '../account-yield.calculator';
 
 /** One CDI business day per weekday between two dates (inclusive). */
@@ -22,6 +22,15 @@ describe('account yield calculator (lots)', () => {
             expect(irRateForDays(361)).toBe(0.175);
             expect(irRateForDays(720)).toBe(0.175);
             expect(irRateForDays(721)).toBe(0.15);
+        });
+
+        it('follows the regressive IOF table for the first 29 days and 0% from day 30', () => {
+            expect(iofRateForDays(0)).toBe(0.96);
+            expect(iofRateForDays(1)).toBe(0.96);
+            expect(iofRateForDays(15)).toBe(0.50);
+            expect(iofRateForDays(29)).toBe(0.03);
+            expect(iofRateForDays(30)).toBe(0);
+            expect(iofRateForDays(45)).toBe(0);
         });
     });
 
@@ -90,16 +99,37 @@ describe('account yield calculator (lots)', () => {
             expect(lots[1]).toMatchObject({ date: '2026-04-11', irRate: 0.225 });
         });
 
-        it('keeps IR already withheld when a lot reaches a lower bracket (Mercado Pago)', () => {
+        it('releases provisioned tax difference (taxRefund) when a lot reaches a lower bracket (regra do salto)', () => {
             const { credits, lots } = simulateBucket({
                 startKey: '2026-01-01', todayKey: '2026-07-10', cdiPercentage: 100,
                 cdiDays: businessDays('2026-01-01', '2026-07-09'),
                 openingBalance: 1000, movements: [], creditedKeys: new Set(),
             });
-            expect(credits.every(c => c.taxRefund === 0)).toBe(true);
-            // 180 days withheld at 22,5% and the last days at 20%: overall above 20% of everything earned
-            expect(lots[0].tax / lots[0].gross).toBeGreaterThan(0.22);
+            // No dia 181 (2026-07-01), o lote atinge 20% e o excesso provisionado de 2,5% é estornado como taxRefund
+            const crossing = credits.find(c => c.date === '2026-07-01')!;
+            expect(crossing.taxRefund).toBeGreaterThan(0);
+            // Ao final, o IR total provisionado sobre o lote reflete a alíquota da faixa atual (20%)
+            expect(lots[0].tax / lots[0].gross).toBeCloseTo(0.20, 2);
             expect(credits.find(c => c.date === '2026-07-02')!.irRate).toBeCloseTo(0.2, 2);
+        });
+
+        it('applies IOF only when hasIof is true and ignores it when hasIof is false', () => {
+            const days = businessDays('2026-11-02', '2026-11-10');
+            const withoutIof = simulateBucket({
+                startKey: '2026-11-02', todayKey: '2026-11-05', cdiPercentage: 100,
+                cdiDays: days, openingBalance: 1000, movements: [], creditedKeys: new Set(),
+                hasIof: false,
+            });
+            const withIof = simulateBucket({
+                startKey: '2026-11-02', todayKey: '2026-11-05', cdiPercentage: 100,
+                cdiDays: days, openingBalance: 1000, movements: [], creditedKeys: new Set(),
+                hasIof: true,
+            });
+
+            // Sem IOF (Mercado Pago), a tributação no 1º dia é apenas IR (22,5%)
+            expect(withoutIof.credits[0].taxAmount).toBeCloseTo(withoutIof.credits[0].grossAmount * 0.225, 2);
+            // Com IOF, no dia 0/1 o IOF é ~96% e o IR incide sobre o restante, gerando maior retenção
+            expect(withIof.credits[0].taxAmount).toBeGreaterThan(withoutIof.credits[0].taxAmount);
         });
 
         it('truncates each day\'s gross yield to the cent, like Mercado Pago (R$ 100 a 120% desde 12/04)', () => {

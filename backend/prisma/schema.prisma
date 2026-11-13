@@ -200,6 +200,7 @@ model Account {
   purchaseExchangeRate Float?      // Cotação do dólar (R$/US$) paga no momento da compra
   type                 AccountType @default(CHECKING)
   cdiPercentage        Float?      // Só para contas remuneradas, ex: 100 = 100% do CDI
+  hasIof               Boolean     @default(false) // Se incide IOF sobre os rendimentos nos primeiros 30 dias (padrão Mercado Pago = false/isento)
   yieldSince           DateTime?   // Dia a partir do qual a conta remunerada passa a render (sem retroativo)
   yields               AccountYield[]
   pots                 YieldPot[]

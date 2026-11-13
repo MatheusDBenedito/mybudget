@@ -121,6 +121,7 @@ export class AccountsService {
       data: {
         workspaceId,
         name: createAccountDto.name.trim(),
+        hasIof: effectiveType === 'YIELDING' ? Boolean(createAccountDto.hasIof) : false,
         ...currencyFields,
         ...yieldFields,
       },
@@ -288,7 +289,7 @@ export class AccountsService {
     // Check if account exists first
     const existing = await this.findOne(workspaceId, id);
 
-    const { type, cdiPercentage, name, currency, balanceUsd, investedBrl, purchaseExchangeRate, ...rest } = updateAccountDto;
+    const { type, cdiPercentage, name, currency, balanceUsd, investedBrl, purchaseExchangeRate, hasIof, ...rest } = updateAccountDto;
     const targetCurrency = (currency ?? existing.currency ?? 'BRL') as 'BRL' | 'USD';
     const effectiveType = targetCurrency === 'USD' ? 'CHECKING' : (type ?? existing.type);
 
@@ -335,15 +336,17 @@ export class AccountsService {
         data: {
           ...currencyFields,
           ...(name !== undefined ? { name: name.trim() } : {}),
+          ...(hasIof !== undefined ? { hasIof: effectiveType === 'YIELDING' ? Boolean(hasIof) : false } : {}),
           ...yieldFields,
         },
       }),
       ...(Math.abs(delta) >= 0.005 ? [this.prisma.balanceAdjustment.create({ data: { accountId: id, workspaceId, amount: delta } })] : []),
     ]);
 
-    // Still yielding with a new % of CDI: the new rate applies since it started yielding
+    // Still yielding with a new % of CDI or IOF setting: recompute since it started yielding
     if (existing.type === 'YIELDING' && updated.type === 'YIELDING' && updated.yieldSince
-      && updated.cdiPercentage !== existing.cdiPercentage && toDateKey(updated.yieldSince) < toDateKey(new Date())) {
+      && (updated.cdiPercentage !== existing.cdiPercentage || updated.hasIof !== existing.hasIof)
+      && toDateKey(updated.yieldSince) < toDateKey(new Date())) {
       await this.yields.recomputeFrom(id, toDateKey(updated.yieldSince));
       return this.findOne(workspaceId, id);
     }

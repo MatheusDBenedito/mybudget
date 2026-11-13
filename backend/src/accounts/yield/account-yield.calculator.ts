@@ -86,6 +86,22 @@ export function daysBetween(a: string, b: string): number {
     return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / MS_PER_DAY);
 }
 
+// Brazilian regressive IOF table for fixed income (days 1 to 29; 0% from day 30 onwards)
+export const IOF_RATES_BY_DAY: Record<number, number> = {
+    1: 0.96, 2: 0.93, 3: 0.90, 4: 0.86, 5: 0.83,
+    6: 0.80, 7: 0.76, 8: 0.73, 9: 0.70, 10: 0.66,
+    11: 0.63, 12: 0.60, 13: 0.56, 14: 0.53, 15: 0.50,
+    16: 0.46, 17: 0.43, 18: 0.40, 19: 0.36, 20: 0.33,
+    21: 0.30, 22: 0.26, 23: 0.23, 24: 0.20, 25: 0.16,
+    26: 0.13, 27: 0.10, 28: 0.06, 29: 0.03,
+};
+
+export function iofRateForDays(days: number): number {
+    if (days <= 0) return 0.96;
+    if (days >= 30) return 0;
+    return IOF_RATES_BY_DAY[days] ?? 0;
+}
+
 /** Brazilian regressive IR table for fixed income, by calendar days since the deposit. */
 export function irRateForDays(days: number): number {
     if (days <= 180) return 0.225;
@@ -138,6 +154,8 @@ export type SimulateBucketInput = {
     movements: BalanceMovement[];
     /** Days already credited: simulated (so lots evolve) but not returned as new credits */
     creditedKeys: Set<string>;
+    /** Whether IOF is charged on earnings during the first 30 days (false = isento, e.g. Mercado Pago) */
+    hasIof?: boolean;
 };
 
 export type SimulateBucketResult = {
@@ -187,14 +205,18 @@ export function simulateBucket(input: SimulateBucketInput): SimulateBucketResult
 
         const balanceBefore = round2(lots.reduce((acc, l) => acc + lotValue(l), 0));
         let tax = 0;
-        const refund = 0; // IR already withheld is kept on bracket change (Mercado Pago)
-        const earning: { lot: Lot; g: number; irRate: number }[] = [];
+        let refund = 0;
+        let dailyIrWeight = 0;
+        let dailyGrossWeight = 0;
+        const earning: { lot: Lot; g: number; irRate: number; iofRate: number }[] = [];
         for (const lot of lots) {
-            const irRate = irRateForDays(daysBetween(lot.date, day));
+            const ageDays = daysBetween(lot.date, day);
+            const irRate = irRateForDays(ageDays);
+            const iofRate = input.hasIof ? iofRateForDays(ageDays) : 0;
             const value = lotValue(lot);
             // A deposit earns from the business day it settles
             if (day < lot.yieldFrom || !(value > 0) || !(input.cdiPercentage > 0)) continue;
-            earning.push({ lot, irRate, g: value * (rate / 100) * (input.cdiPercentage / 100) });
+            earning.push({ lot, irRate, iofRate, g: value * (rate / 100) * (input.cdiPercentage / 100) });
         }
 
         // The day's gross yield is truncated to the cent (as Mercado Pago credits it); the lots share it proportionally
@@ -203,10 +225,36 @@ export function simulateBucket(input: SimulateBucketInput): SimulateBucketResult
         const share = exactGross > 0 ? gross / exactGross : 0;
         for (const e of earning) {
             const g = e.g * share;
-            const t = g * e.irRate;
+            // IOF incide primeiro sobre o rendimento bruto (se houver); IR incide sobre o rendimento líquido de IOF
+            const iof = g * e.iofRate;
+            const baseIr = Math.max(g - iof, 0);
+            const t = iof + baseIr * e.irRate;
             e.lot.gross += g;
             e.lot.tax += t;
             tax += t;
+            dailyIrWeight += t;
+            dailyGrossWeight += g;
+        }
+
+        // Regra da virada de faixa ("Salto"):
+        // A provisão contínua de IR sobre o rendimento total acumulado do lote segue a alíquota da faixa atual (t).
+        // Se a alíquota atual do lote for menor que o imposto provisionado até então, a diferença é liberada
+        // como ajuste positivo (taxRefund), reduzindo a trava do imposto e aumentando o saldo líquido.
+        for (const lot of lots) {
+            if (lot.gross > EPSILON) {
+                const currentAge = daysBetween(lot.date, day);
+                const currentIrRate = irRateForDays(currentAge);
+                const currentIofRate = input.hasIof ? iofRateForDays(currentAge) : 0;
+                const expectedIof = lot.gross * currentIofRate;
+                const expectedIr = Math.max(lot.gross - expectedIof, 0) * currentIrRate;
+                const maxProvisionedTax = expectedIof + expectedIr;
+
+                if (lot.tax > maxProvisionedTax + 1e-4) {
+                    const diff = lot.tax - maxProvisionedTax;
+                    lot.tax = maxProvisionedTax;
+                    refund += diff;
+                }
+            }
         }
 
         const [prevGross, prevTax, prevRefund] = [cumGross, cumTax, cumRefund];
@@ -217,16 +265,17 @@ export function simulateBucket(input: SimulateBucketInput): SimulateBucketResult
         if (input.creditedKeys.has(day)) continue;
         const grossAmount = round2(round2(cumGross) - round2(prevGross));
         const taxAmount = round2(round2(cumTax) - round2(prevTax));
+        const taxRefund = round2(round2(cumRefund) - round2(prevRefund));
         credits.push({
             date: day,
             cdiDailyRate: rate,
             cdiPercentage: input.cdiPercentage,
             balanceBefore,
             grossAmount,
-            irRate: gross > 0 ? Math.round((tax / gross) * 10000) / 10000 : irRateForDays(0),
+            irRate: dailyGrossWeight > 0 ? Math.round((dailyIrWeight / dailyGrossWeight) * 10000) / 10000 : irRateForDays(0),
             taxAmount,
             netAmount: round2(grossAmount - taxAmount),
-            taxRefund: round2(round2(cumRefund) - round2(prevRefund)),
+            taxRefund,
         });
     }
 

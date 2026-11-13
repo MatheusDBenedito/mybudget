@@ -1,4 +1,4 @@
-import { IsEnum, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import { AccountType } from '@prisma/client';
 
 export class CreateAccountDto {
@@ -41,4 +41,9 @@ export class CreateAccountDto {
     @Max(500)
     @IsOptional()
     cdiPercentage?: number | null;
+
+    // Se incide IOF sobre os rendimentos nos primeiros 30 dias (padrão Mercado Pago = false/isento)
+    @IsBoolean()
+    @IsOptional()
+    hasIof?: boolean;
 }

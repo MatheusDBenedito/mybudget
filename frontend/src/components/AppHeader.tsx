@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import {
   Gauge,
   CreditCard,
@@ -19,6 +20,9 @@ import {
   Shield,
   LogOut,
   Building2,
+  Tags,
+  Landmark,
+  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePrivacy } from "@/lib/privacy";
@@ -31,13 +35,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+type NavChildItem = {
+  href: string;
+  label: string;
+  icon: typeof Gauge;
+  exact?: boolean;
+  tab?: string;
+  superAdminOnly?: boolean;
+};
+
 type NavItem = {
   href: string;
   label: string;
   icon: typeof Gauge;
   requiredAny?: string[];
   superAdminOnly?: boolean;
-  children?: Array<{ href: string; label: string; icon: typeof Gauge; exact?: boolean }>;
+  children?: NavChildItem[];
 };
 
 const NAV_ITEMS: NavItem[] = [
@@ -61,9 +74,64 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/cartoes", label: "Cartões", icon: CreditCard, requiredAny: ["view:cartao"] },
   { href: "/milhas", label: "Milhas", icon: Plane, requiredAny: ["view:milhas"] },
   { href: "/relatorios", label: "Relatórios", icon: ChartColumn, requiredAny: ["view:fluxo_caixa"] },
-  { href: "/configuracoes", label: "Configurações", icon: Settings },
+  {
+    href: "/configuracoes",
+    label: "Configurações",
+    icon: Settings,
+    children: [
+      { href: "/configuracoes?tab=workspaces", label: "Workspaces", icon: Building2, tab: "workspaces" },
+      { href: "/configuracoes?tab=categorias", label: "Categorias", icon: Tags, tab: "categorias" },
+      { href: "/configuracoes?tab=cartoes", label: "Cartões", icon: CreditCard, tab: "cartoes" },
+      { href: "/configuracoes?tab=contas", label: "Contas", icon: Landmark, tab: "contas" },
+      { href: "/configuracoes?tab=integracoes", label: "Integrações", icon: Link2, tab: "integracoes", superAdminOnly: true },
+    ],
+  },
   { href: "/admin", label: "Super Admin", icon: Shield, superAdminOnly: true },
 ];
+
+function HeaderSubmenu({
+  childrenItems,
+  pathname,
+  isSuperAdmin,
+}: {
+  childrenItems: NavChildItem[];
+  pathname: string;
+  isSuperAdmin?: boolean;
+}) {
+  const searchParams = useSearchParams();
+  const currentTab = searchParams.get("tab") ?? "workspaces";
+  const visibleChildren = childrenItems.filter((sub) => !sub.superAdminOnly || isSuperAdmin);
+
+  return (
+    <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 absolute left-0 top-full z-40 pt-1 transition-all duration-150">
+      <div className="min-w-[190px] rounded-lg border bg-card p-1.5 shadow-lg">
+        {visibleChildren.map((sub) => {
+          const SubIcon = sub.icon;
+          const subActive = sub.tab
+            ? pathname === "/configuracoes" && currentTab === sub.tab
+            : sub.exact
+              ? pathname === sub.href
+              : pathname.startsWith(sub.href);
+          return (
+            <Link
+              key={sub.href}
+              href={sub.href}
+              className={cn(
+                "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+                subActive
+                  ? "bg-muted font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              )}
+            >
+              <SubIcon className="h-4 w-4" aria-hidden="true" />
+              {sub.label}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function AppHeader() {
   const pathname = usePathname();
@@ -210,29 +278,13 @@ export function AppHeader() {
                     )}
                   </Link>
                   {children && (
-                    <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 absolute left-0 top-full z-40 pt-1 transition-all duration-150">
-                      <div className="min-w-[190px] rounded-lg border bg-card p-1.5 shadow-lg">
-                        {children.map((sub) => {
-                          const SubIcon = sub.icon;
-                          const subActive = sub.exact ? pathname === sub.href : pathname.startsWith(sub.href);
-                          return (
-                            <Link
-                              key={sub.href}
-                              href={sub.href}
-                              className={cn(
-                                "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-                                subActive
-                                  ? "bg-muted font-medium text-foreground"
-                                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-                              )}
-                            >
-                              <SubIcon className="h-4 w-4" aria-hidden="true" />
-                              {sub.label}
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <Suspense fallback={null}>
+                      <HeaderSubmenu
+                        childrenItems={children}
+                        pathname={pathname}
+                        isSuperAdmin={user.isSuperAdmin}
+                      />
+                    </Suspense>
                   )}
                 </li>
               );

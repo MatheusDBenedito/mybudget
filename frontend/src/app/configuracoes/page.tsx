@@ -1,5 +1,7 @@
 "use client";
 
+import { Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tags, CreditCard, Landmark, Link2, ExternalLink, Key, Building2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
@@ -18,15 +20,23 @@ const TABS = [
     { value: "integracoes", label: "Integrações", icon: Link2, superAdminOnly: true },
 ];
 
-export default function SettingsPage() {
+function SettingsContent() {
     const { user } = useAuth();
+    const router = useRouter();
+    const searchParams = useSearchParams();
     const visibleTabs = TABS.filter((tab) => !tab.superAdminOnly || user?.isSuperAdmin);
+    const requestedTab = searchParams.get("tab") ?? "workspaces";
+    const activeTab = visibleTabs.some((t) => t.value === requestedTab) ? requestedTab : "workspaces";
+
+    const handleTabChange = (value: string) => {
+        router.replace(`/configuracoes?tab=${value}`);
+    };
 
     return (
         <div className="space-y-6">
             <PageHeader title="Configurações" description="Gerencie seus workspaces, membros, categorias, cartões e contas." />
 
-            <Tabs defaultValue="workspaces" className="gap-6">
+            <Tabs value={activeTab} onValueChange={handleTabChange} className="gap-6">
                 <div className="overflow-x-auto border-b">
                     <TabsList variant="line" className="h-11 items-stretch gap-6 p-0">
                         {visibleTabs.map(({ value, label, icon: Icon }) => (
@@ -115,5 +125,13 @@ export default function SettingsPage() {
                 )}
             </Tabs>
         </div>
+    );
+}
+
+export default function SettingsPage() {
+    return (
+        <Suspense fallback={null}>
+            <SettingsContent />
+        </Suspense>
     );
 }

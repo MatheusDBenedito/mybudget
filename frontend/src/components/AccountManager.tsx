@@ -71,6 +71,7 @@ type ApiAccount = {
     variationPct?: number;
     type: AccountType;
     cdiPercentage: number | null;
+    hasIof?: boolean;
     /** Net yield credited this month (yielding accounts) */
     monthYield?: number;
     /** Balance outside the cofrinhos */
@@ -88,6 +89,7 @@ const accountSchema = z.object({
     purchaseExchangeRate: z.number().optional(),
     type: z.enum(["CHECKING", "YIELDING"]),
     cdiPercentage: z.number().optional(),
+    hasIof: z.boolean().optional(),
 }).superRefine((data, ctx) => {
     if (data.currency === "BRL" && data.type === "YIELDING" && !(data.cdiPercentage && data.cdiPercentage > 0)) {
         ctx.addIssue({ code: "custom", message: "Informe quanto a conta rende (% do CDI).", path: ["cdiPercentage"] });
@@ -160,6 +162,7 @@ export function AccountManager() {
             purchaseExchangeRate: undefined,
             type: "CHECKING",
             cdiPercentage: undefined,
+            hasIof: false,
         },
     });
     const watchType = form.watch("type");
@@ -202,6 +205,7 @@ export function AccountManager() {
             purchaseExchangeRate: undefined,
             type: "CHECKING",
             cdiPercentage: undefined,
+            hasIof: false,
         });
         setIsDialogOpen(true);
     };
@@ -217,6 +221,7 @@ export function AccountManager() {
             purchaseExchangeRate: account.purchaseExchangeRate ?? undefined,
             type: account.type ?? "CHECKING",
             cdiPercentage: account.cdiPercentage ?? undefined,
+            hasIof: account.hasIof ?? false,
         });
         setIsDialogOpen(true);
     };
@@ -250,6 +255,7 @@ export function AccountManager() {
                     purchaseExchangeRate: null,
                     type: data.type,
                     cdiPercentage: data.type === "YIELDING" ? data.cdiPercentage : null,
+                    hasIof: data.type === "YIELDING" ? Boolean(data.hasIof) : false,
                 };
 
             const res = await fetch(url, {
@@ -542,28 +548,68 @@ export function AccountManager() {
                                     </fieldset>
 
                                     {watchType === "YIELDING" && (
-                                        <div className="space-y-2">
-                                            <Label htmlFor="cdiPercentage">Rendimento (% do CDI)</Label>
-                                            <Controller
-                                                control={form.control}
-                                                name="cdiPercentage"
-                                                render={({ field }) => (
-                                                    <Input
-                                                        id="cdiPercentage"
-                                                        type="number"
-                                                        inputMode="decimal"
-                                                        min={0}
-                                                        step="0.5"
-                                                        placeholder="Ex: 100"
-                                                        value={field.value ?? ""}
-                                                        onChange={(e) => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
-                                                    />
+                                        <>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="cdiPercentage">Rendimento (% do CDI)</Label>
+                                                <Controller
+                                                    control={form.control}
+                                                    name="cdiPercentage"
+                                                    render={({ field }) => (
+                                                        <Input
+                                                            id="cdiPercentage"
+                                                            type="number"
+                                                            inputMode="decimal"
+                                                            min={0}
+                                                            step="0.5"
+                                                            placeholder="Ex: 100"
+                                                            value={field.value ?? ""}
+                                                            onChange={(e) => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+                                                        />
+                                                    )}
+                                                />
+                                                {form.formState.errors.cdiPercentage && (
+                                                    <p className="text-xs text-red-500">{form.formState.errors.cdiPercentage.message}</p>
                                                 )}
-                                            />
-                                            {form.formState.errors.cdiPercentage && (
-                                                <p className="text-xs text-red-500">{form.formState.errors.cdiPercentage.message}</p>
-                                            )}
-                                        </div>
+                                            </div>
+
+                                            <div className="space-y-2 rounded-lg border p-3 bg-muted/20">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="space-y-0.5">
+                                                        <Label htmlFor="hasIof" className="text-sm font-medium">Cobrança de IOF</Label>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            Incide IOF regressivo sobre os rendimentos nos primeiros 30 dias?
+                                                        </p>
+                                                    </div>
+                                                    <Controller
+                                                        control={form.control}
+                                                        name="hasIof"
+                                                        render={({ field }) => (
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    role="switch"
+                                                                    aria-checked={field.value ?? false}
+                                                                    onClick={() => field.onChange(!field.value)}
+                                                                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${field.value ? "bg-primary" : "bg-muted"}`}
+                                                                >
+                                                                    <span
+                                                                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out ${field.value ? "translate-x-5" : "translate-x-0"}`}
+                                                                    />
+                                                                </button>
+                                                                <span className="text-xs font-semibold w-8">
+                                                                    {field.value ? "Sim" : "Não"}
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                    />
+                                                </div>
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    {form.watch("hasIof")
+                                                        ? "Tabela regressiva de IOF aplicada de 96% no dia 1 a 0% no dia 30."
+                                                        : "Isento de IOF (0% em qualquer prazo, como no Mercado Pago)."}
+                                                </p>
+                                            </div>
+                                        </>
                                     )}
                                 </>
                             )}
