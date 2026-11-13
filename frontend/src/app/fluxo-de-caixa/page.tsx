@@ -18,6 +18,7 @@ import { SettleTransactionDialog } from "@/components/cash-flow/SettleTransactio
 import { DeleteTransactionDialog, type DeleteScope } from "@/components/cash-flow/DeleteTransactionDialog";
 import type { AccountLike } from "@/lib/accounts";
 import { type ApiInvestment, grossValueOf } from "@/lib/investments";
+import { API_BASE_URL } from "@/lib/auth";
 
 type ApiAccount = AccountLike;
 
@@ -41,10 +42,10 @@ export default function FluxoDeCaixaPage() {
         if (!silent) setIsLoading(true);
         try {
             const [flowRes, txRes, accRes, invRes] = await Promise.all([
-                fetch(`http://localhost:3333/cash-flow?month=${month}&year=${year}&months=12`),
-                fetch(`http://localhost:3333/transactions?month=${month}&year=${year}`),
-                fetch("http://localhost:3333/accounts"),
-                fetch("http://localhost:3333/investments"),
+                fetch(`${API_BASE_URL}/cash-flow?month=${month}&year=${year}&months=12`),
+                fetch(`${API_BASE_URL}/transactions?month=${month}&year=${year}`),
+                fetch(`${API_BASE_URL}/accounts`),
+                fetch(`${API_BASE_URL}/investments`),
             ]);
             const [flow, txs, accs, invs] = await Promise.all([
                 flowRes.ok ? flowRes.json() : null,
@@ -105,7 +106,7 @@ export default function FluxoDeCaixaPage() {
             if (status === "PAID" && accountId) body.accountId = accountId;
             if (status === "PAID" && amount !== undefined) body.amount = amount;
 
-            const res = await fetch(`http://localhost:3333/transactions/${transaction.id}/status`, {
+            const res = await fetch(`${API_BASE_URL}/transactions/${transaction.id}/status`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
@@ -133,7 +134,7 @@ export default function FluxoDeCaixaPage() {
         // Optimistic: leaves the month lists right away; the sheet, totals and balances come from the server
         setTransactions(list => list.filter(t => t.id !== transaction.id));
         try {
-            const res = await fetch(`http://localhost:3333/transactions/${transaction.id}?scope=${scope}`, { method: "DELETE" });
+            const res = await fetch(`${API_BASE_URL}/transactions/${transaction.id}?scope=${scope}`, { method: "DELETE" });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             toast.success(scope === "series"
                 ? `"${transaction.description}" excluído deste mês em diante.`

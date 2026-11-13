@@ -33,6 +33,7 @@ import {
     yieldLabel,
 } from "@/lib/accounts";
 import { type ApiPot, YieldPots } from "@/components/YieldPots";
+import { API_BASE_URL } from "@/lib/auth";
 
 const formatBRL = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -134,7 +135,7 @@ export function AccountManager() {
     const undoTransfer = async () => {
         if (!transferToUndo) return;
         try {
-            const res = await fetch(`http://localhost:3333/accounts/transfers/${transferToUndo.id}`, { method: "DELETE" });
+            const res = await fetch(`${API_BASE_URL}/accounts/transfers/${transferToUndo.id}`, { method: "DELETE" });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
                 throw new Error(err.message ?? "Erro ao desfazer.");
@@ -171,8 +172,8 @@ export function AccountManager() {
         if (!silent) setIsLoading(true);
         try {
             const [res, transfersRes] = await Promise.all([
-                fetch("http://localhost:3333/accounts"),
-                fetch("http://localhost:3333/accounts/transfers"),
+                fetch(`${API_BASE_URL}/accounts`),
+                fetch(`${API_BASE_URL}/accounts/transfers`),
             ]);
             if (res.ok) {
                 const data = await res.json();
@@ -224,8 +225,8 @@ export function AccountManager() {
         setIsSaving(true);
         try {
             const url = editingAccount
-                ? `http://localhost:3333/accounts/${editingAccount.id}`
-                : "http://localhost:3333/accounts";
+                ? `${API_BASE_URL}/accounts/${editingAccount.id}`
+                : `${API_BASE_URL}/accounts`;
 
             const method = editingAccount ? "PATCH" : "POST";
 
@@ -277,7 +278,7 @@ export function AccountManager() {
         if (!accountToDelete) return;
 
         try {
-            const res = await fetch(`http://localhost:3333/accounts/${accountToDelete.id}`, {
+            const res = await fetch(`${API_BASE_URL}/accounts/${accountToDelete.id}`, {
                 method: "DELETE"
             });
 

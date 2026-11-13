@@ -34,6 +34,7 @@ import {
 import { Plus, Trash2 } from "lucide-react";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { ORIGIN_PROGRAMS } from "@/lib/miles";
+import { API_BASE_URL } from "@/lib/auth";
 
 type AdditionalHolderDraft = {
     name: string;
@@ -139,8 +140,8 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
         try {
             const isEditing = !!initialData;
             const url = isEditing
-                ? `http://localhost:3333/credit-cards/${initialData.id}`
-                : "http://localhost:3333/credit-cards";
+                ? `${API_BASE_URL}/credit-cards/${initialData.id}`
+                : `${API_BASE_URL}/credit-cards`;
             const method = isEditing ? "PATCH" : "POST";
 
             const payload = isEditing
@@ -160,7 +161,7 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
                     const mainHolderId = created?.holders?.[0]?.id;
                     const cleanLast4 = data.holderLast4?.trim();
                     if (mainHolderId && cleanLast4) {
-                        await fetch(`http://localhost:3333/credit-cards/${created.id}/holders/${mainHolderId}`, {
+                        await fetch(`${API_BASE_URL}/credit-cards/${created.id}/holders/${mainHolderId}`, {
                             method: "PATCH",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ last4: cleanLast4 }),
@@ -169,7 +170,7 @@ export function CreateCardModal({ children, initialData, onSuccess }: CreateCard
                     for (const extra of additionalHolders) {
                         const extraName = extra.name.trim();
                         if (extraName.length < 2) continue;
-                        await fetch(`http://localhost:3333/credit-cards/${created.id}/holders`, {
+                        await fetch(`${API_BASE_URL}/credit-cards/${created.id}/holders`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({

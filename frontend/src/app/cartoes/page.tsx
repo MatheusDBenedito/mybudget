@@ -302,6 +302,7 @@ function InvoiceItems({ transactions, categories, onEditSuccess, showHolder = fa
 }
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { API_BASE_URL } from "@/lib/auth";
 
 export default function CartoesPage() {
     const monthsList = useMemo(() => {
@@ -353,8 +354,8 @@ export default function CartoesPage() {
         const loadInitialData = async () => {
             try {
                 const [cardRes, catRes] = await Promise.all([
-                    fetch("http://localhost:3333/credit-cards"),
-                    fetch("http://localhost:3333/categories")
+                    fetch(`${API_BASE_URL}/credit-cards`),
+                    fetch(`${API_BASE_URL}/categories`)
                 ]);
 
                 if (cardRes.ok) {
@@ -382,7 +383,7 @@ export default function CartoesPage() {
     /** Reloads the card list keeping the card currently selected */
     const refreshCards = useCallback(async () => {
         try {
-            const res = await fetch("http://localhost:3333/credit-cards");
+            const res = await fetch(`${API_BASE_URL}/credit-cards`);
             if (!res.ok) return;
             const cards: ApiCard[] = await res.json();
             setAllCards(cards);
@@ -396,7 +397,7 @@ export default function CartoesPage() {
     const makePrimary = async (target: ApiCard) => {
         if (target.isPrimary) return;
         try {
-            const res = await fetch(`http://localhost:3333/credit-cards/${target.id}/primary`, { method: "PATCH" });
+            const res = await fetch(`${API_BASE_URL}/credit-cards/${target.id}/primary`, { method: "PATCH" });
             if (!res.ok) throw new Error("Falha ao salvar o cartão principal");
             await refreshCards();
             toast.success(`${target.name} agora é o cartão principal.`);
@@ -410,13 +411,13 @@ export default function CartoesPage() {
         if (!card) return;
         try {
             const fetchMonth = async (month: number, year: number) => {
-                const res = await fetch(`http://localhost:3333/card-transactions/${card.id}/invoice?month=${month}&year=${year}`);
+                const res = await fetch(`${API_BASE_URL}/card-transactions/${card.id}/invoice?month=${month}&year=${year}`);
                 if (res.ok) return await res.json();
                 return [];
             };
 
             const fetchMonthTotal = async (month: number, year: number) => {
-                const res = await fetch(`http://localhost:3333/card-transactions/summary/invoice?month=${month}&year=${year}`);
+                const res = await fetch(`${API_BASE_URL}/card-transactions/summary/invoice?month=${month}&year=${year}`);
                 if (res.ok) {
                     const data = await res.json();
                     return data.totalAmount;

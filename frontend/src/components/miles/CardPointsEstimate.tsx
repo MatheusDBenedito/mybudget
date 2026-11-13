@@ -13,6 +13,7 @@ import {
     type ApiMilesEntry, type MilesCard, type MilesEntryDraft,
     estimatePointsFromSpend, formatPoints, suggestExpectedCreditDate, toDateInputValue,
 } from "@/lib/miles";
+import { API_BASE_URL } from "@/lib/auth";
 
 interface CardPointsEstimateProps {
     cards: MilesCard[];
@@ -41,7 +42,7 @@ export function CardPointsEstimate({ cards, usdRate, entries, onRegister }: Card
             try {
                 const ids = earningIds.split(",");
                 const totals = await Promise.all(ids.map(async (id) => {
-                    const res = await fetch(`http://localhost:3333/card-transactions/${id}/invoice?month=${month}&year=${year}`);
+                    const res = await fetch(`${API_BASE_URL}/card-transactions/${id}/invoice?month=${month}&year=${year}`);
                     if (!res.ok) return [id, 0] as const;
                     const items: { amount: number }[] = await res.json();
                     return [id, items.reduce((acc, i) => acc + i.amount, 0)] as const;

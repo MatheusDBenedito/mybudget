@@ -33,6 +33,7 @@ import {
     FormMessage,
 } from "@/components/ui/form";
 import { cn } from "@/lib/utils";
+import { API_BASE_URL } from "@/lib/auth";
 
 const categorySchema = z.object({
     name: z.string().min(2, "A categoria deve ter pelo menos 2 caracteres."),
@@ -114,8 +115,8 @@ export function CreateCategoryModal({ children, initialData, onSuccess }: Create
         setIsSaving(true);
         try {
             const url = initialData?.id
-                ? `http://localhost:3333/categories/${initialData.id}`
-                : "http://localhost:3333/categories";
+                ? `${API_BASE_URL}/categories/${initialData.id}`
+                : `${API_BASE_URL}/categories`;
             const method = initialData?.id ? "PATCH" : "POST";
 
             const res = await fetch(url, {

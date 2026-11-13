@@ -50,6 +50,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { holdersOf, mainHolder } from "@/lib/credit-cards";
+import { API_BASE_URL } from "@/lib/auth";
 
 const cardTransactionSchema = z.object({
     description: z.string().min(3, "A descrição deve ter pelo menos 3 caracteres."),
@@ -101,8 +102,8 @@ export function CreditCardTransactionModal({ children, initialData, onSuccess }:
         const fetchData = async () => {
             try {
                 const [catRes, cardRes] = await Promise.all([
-                    fetch("http://localhost:3333/categories"),
-                    fetch("http://localhost:3333/credit-cards")
+                    fetch(`${API_BASE_URL}/categories`),
+                    fetch(`${API_BASE_URL}/credit-cards`)
                 ]);
 
                 if (catRes.ok) setCategories(await catRes.json());
@@ -162,8 +163,8 @@ export function CreditCardTransactionModal({ children, initialData, onSuccess }:
         try {
             const isEditing = !!initialData;
             const url = isEditing
-                ? `http://localhost:3333/card-transactions/${initialData.id}`
-                : "http://localhost:3333/card-transactions";
+                ? `${API_BASE_URL}/card-transactions/${initialData.id}`
+                : `${API_BASE_URL}/card-transactions`;
 
             const amountValue = data.amount;
 
@@ -217,7 +218,7 @@ export function CreditCardTransactionModal({ children, initialData, onSuccess }:
         if (!initialData) return;
         setIsSaving(true);
         try {
-            const res = await fetch(`http://localhost:3333/card-transactions/${initialData.id}`, {
+            const res = await fetch(`${API_BASE_URL}/card-transactions/${initialData.id}`, {
                 method: "DELETE",
             });
 

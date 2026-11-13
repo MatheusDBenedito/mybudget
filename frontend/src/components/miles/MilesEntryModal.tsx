@@ -16,6 +16,7 @@ import {
     DESTINATION_PROGRAMS, MILES_STATUS_LABELS, MILES_STATUS_ORDER, ORIGIN_PROGRAMS,
     fromApiDate, toDateInputValue,
 } from "@/lib/miles";
+import { API_BASE_URL } from "@/lib/auth";
 
 const OTHER_ORIGIN = "__other";
 
@@ -109,7 +110,7 @@ export function MilesEntryModal({ open, onOpenChange, cards, entry, draft, onSav
         };
 
         try {
-            const res = await fetch(entry ? `http://localhost:3333/miles/${entry.id}` : "http://localhost:3333/miles", {
+            const res = await fetch(entry ? `${API_BASE_URL}/miles/${entry.id}` : `${API_BASE_URL}/miles`, {
                 method: entry ? "PATCH" : "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),

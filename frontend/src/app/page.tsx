@@ -23,6 +23,7 @@ import { billsByDay, budgetBreakdown, defaultBillDay } from "@/lib/dashboard";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { useDashboardLayout } from "@/components/dashboard/useDashboardLayout";
 import type { DashboardBlockId, DashboardLayoutItem } from "@/lib/dashboard-layout";
+import { API_BASE_URL } from "@/lib/auth";
 
 type ApiTransaction = {
   id: string;
@@ -36,7 +37,6 @@ type ApiTransaction = {
 type ApiCategory = { id: string; name: string; icon?: string | null };
 type ExpenseByCategory = { category: string; color: string | null; total: number };
 
-const API = "http://localhost:3333";
 const linkPill = "inline-flex h-8 items-center gap-1.5 rounded-full border px-4 text-xs font-medium hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring";
 
 export default function DashboardPage() {
@@ -78,7 +78,7 @@ export default function DashboardPage() {
     let cancelled = false;
     const get = async <T,>(path: string, set: (v: T) => void) => {
       try {
-        const res = await fetch(`${API}${path}`);
+        const res = await fetch(`${API_BASE_URL}${path}`);
         if (res.ok && !cancelled) set(await res.json());
       } catch (error) {
         console.error(`Failed to load ${path}`, error);

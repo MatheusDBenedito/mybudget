@@ -11,8 +11,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CurrencyInput } from "@/components/ui/currency-input";
+import { API_BASE_URL } from "@/lib/auth";
 
-const API = "http://localhost:3333/accounts";
+const API = `${API_BASE_URL}/accounts`;
 
 const formatPct = (value: number) => `${value.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
 const formatDate = (key: string) => key.split("-").reverse().join("/");

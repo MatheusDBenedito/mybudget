@@ -40,6 +40,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { type AccountLike, defaultSettlementAccount } from "@/lib/accounts";
+import { API_BASE_URL } from "@/lib/auth";
 
 const transactionSchema = z.object({
     description: z.string().min(3, "A descrição deve ter pelo menos 3 caracteres."),
@@ -112,8 +113,8 @@ export function TransactionModal({ children, initialData, onSuccess }: Transacti
         const fetchData = async () => {
             try {
                 const [catRes, accRes] = await Promise.all([
-                    fetch("http://localhost:3333/categories"),
-                    fetch("http://localhost:3333/accounts"),
+                    fetch(`${API_BASE_URL}/categories`),
+                    fetch(`${API_BASE_URL}/accounts`),
                 ]);
                 if (cancelled) return;
                 const catData: ApiCategory[] = catRes.ok ? await catRes.json() : [];
@@ -155,8 +156,8 @@ export function TransactionModal({ children, initialData, onSuccess }: Transacti
         setIsSaving(true);
         try {
             const url = isEditing
-                ? `http://localhost:3333/transactions/${initialData.id}`
-                : "http://localhost:3333/transactions";
+                ? `${API_BASE_URL}/transactions/${initialData.id}`
+                : `${API_BASE_URL}/transactions`;
             const method = isEditing ? "PATCH" : "POST";
 
             const payload: Record<string, unknown> = {

@@ -17,6 +17,7 @@ import {
     type ApiInvestment, type ConsolidatedInvestment, type InvestmentType,
     INVESTMENT_CLASSES, CLASS_ORDER, currentValueOf, grossValueOf, taxAmountOf, profitPctOf, computeClassStats, consolidateInvestments,
 } from "@/lib/investments";
+import { API_BASE_URL } from "@/lib/auth";
 
 const SECTION_STORAGE_KEY = "investimentos:openSections";
 
@@ -83,7 +84,7 @@ export default function InvestimentosPage() {
 
     const fetchInvestments = useCallback(async () => {
         try {
-            const res = await fetch("http://localhost:3333/investments");
+            const res = await fetch(`${API_BASE_URL}/investments`);
             if (res.ok) {
                 const data = await res.json();
                 setInvestments(data);
@@ -119,7 +120,7 @@ export default function InvestimentosPage() {
     const handleDelete = async (id: string) => {
         if (!window.confirm("Tem certeza que deseja excluir este aporte?")) return;
         try {
-            const res = await fetch(`http://localhost:3333/investments/${id}`, {
+            const res = await fetch(`${API_BASE_URL}/investments/${id}`, {
                 method: "DELETE"
             });
             if (res.ok) {

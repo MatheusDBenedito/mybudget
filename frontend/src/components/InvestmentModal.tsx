@@ -109,6 +109,7 @@ type InvestmentData = z.infer<typeof investmentSchema>;
 
 import { useEffect } from "react";
 import type { ApiInvestment } from "@/lib/investments";
+import { API_BASE_URL } from "@/lib/auth";
 
 interface InvestmentModalProps {
     children?: React.ReactNode;
@@ -300,8 +301,8 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
 
             const method = investmentToEdit ? "PATCH" : "POST";
             const url = investmentToEdit
-                ? `http://localhost:3333/investments/${investmentToEdit.id}`
-                : "http://localhost:3333/investments";
+                ? `${API_BASE_URL}/investments/${investmentToEdit.id}`
+                : `${API_BASE_URL}/investments`;
 
             const res = await fetch(url, {
                 method,

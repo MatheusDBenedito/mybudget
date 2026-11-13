@@ -24,6 +24,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { API_BASE_URL } from "@/lib/auth";
 
 type Holder = {
     id: string;
@@ -39,7 +40,6 @@ interface CardHoldersModalProps {
     onChanged?: () => void;
 }
 
-const API = "http://localhost:3333";
 
 async function readError(res: Response, fallback: string) {
     try {
@@ -70,7 +70,7 @@ export function CardHoldersModal({ cardId, cardName, children, onChanged }: Card
     const load = useCallback(async () => {
         setIsLoading(true);
         try {
-            const res = await fetch(`${API}/credit-cards/${cardId}/holders`);
+            const res = await fetch(`${API_BASE_URL}/credit-cards/${cardId}/holders`);
             if (!res.ok) throw new Error(await readError(res, "Falha ao carregar os portadores."));
             setHolders(await res.json());
         } catch (error) {
@@ -103,7 +103,7 @@ export function CardHoldersModal({ cardId, cardName, children, onChanged }: Card
 
         setIsSaving(true);
         try {
-            const res = await fetch(`${API}/credit-cards/${cardId}/holders`, {
+            const res = await fetch(`${API_BASE_URL}/credit-cards/${cardId}/holders`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name: trimmed, last4: last4 || undefined }),
@@ -137,7 +137,7 @@ export function CardHoldersModal({ cardId, cardName, children, onChanged }: Card
 
         setIsSaving(true);
         try {
-            const res = await fetch(`${API}/credit-cards/${cardId}/holders/${holder.id}`, {
+            const res = await fetch(`${API_BASE_URL}/credit-cards/${cardId}/holders/${holder.id}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name: trimmed, last4: editLast4 || null }),
@@ -160,7 +160,7 @@ export function CardHoldersModal({ cardId, cardName, children, onChanged }: Card
 
         setIsSaving(true);
         try {
-            const res = await fetch(`${API}/credit-cards/${cardId}/holders/${holder.id}`, {
+            const res = await fetch(`${API_BASE_URL}/credit-cards/${cardId}/holders/${holder.id}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ isMain: true }),
@@ -182,7 +182,7 @@ export function CardHoldersModal({ cardId, cardName, children, onChanged }: Card
 
         setIsSaving(true);
         try {
-            const res = await fetch(`${API}/credit-cards/${cardId}/holders/${pendingDelete.id}`, {
+            const res = await fetch(`${API_BASE_URL}/credit-cards/${cardId}/holders/${pendingDelete.id}`, {
                 method: "DELETE",
             });
 

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { CreateCardModal } from "@/components/CreateCardModal";
 import { CardHoldersModal } from "@/components/CardHoldersModal";
 import { holderLabel, holdersOf } from "@/lib/credit-cards";
+import { API_BASE_URL } from "@/lib/auth";
 
 type ApiCardHolder = {
     id: string;
@@ -34,7 +35,7 @@ export function CardManager() {
 
     const loadCards = async () => {
         try {
-            const res = await fetch("http://localhost:3333/credit-cards");
+            const res = await fetch(`${API_BASE_URL}/credit-cards`);
             if (res.ok) {
                 const data = await res.json();
 

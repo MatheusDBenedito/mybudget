@@ -15,6 +15,7 @@ import {
     type ApiMilesEntry, type MilesCard, type MilesEntryDraft, type MilesStatus,
     MILES_STATUS_LABELS, daysUntil, formatPoints, fromApiDate, isOverdue,
 } from "@/lib/miles";
+import { API_BASE_URL } from "@/lib/auth";
 
 export default function MilhasPage() {
     const [entries, setEntries] = useState<ApiMilesEntry[]>([]);
@@ -28,7 +29,7 @@ export default function MilhasPage() {
 
     const loadEntries = useCallback(async () => {
         try {
-            const res = await fetch("http://localhost:3333/miles");
+            const res = await fetch(`${API_BASE_URL}/miles`);
             if (res.ok) setEntries(await res.json());
         } catch (error) {
             console.error("Failed to load miles entries", error);
@@ -39,7 +40,7 @@ export default function MilhasPage() {
         const loadAll = async () => {
             try {
                 const [cardsRes] = await Promise.all([
-                    fetch("http://localhost:3333/credit-cards"),
+                    fetch(`${API_BASE_URL}/credit-cards`),
                     loadEntries(),
                 ]);
                 if (cardsRes.ok) setCards(await cardsRes.json());
@@ -78,7 +79,7 @@ export default function MilhasPage() {
     const handleDelete = async (entry: ApiMilesEntry) => {
         if (!window.confirm(`Excluir o lançamento de ${formatPoints(entry.points)} pontos ${entry.program}?`)) return;
         try {
-            const res = await fetch(`http://localhost:3333/miles/${entry.id}`, { method: "DELETE" });
+            const res = await fetch(`${API_BASE_URL}/miles/${entry.id}`, { method: "DELETE" });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             setEntries(prev => prev.filter(e => e.id !== entry.id));
             toast.success("Lançamento excluído.");
@@ -93,7 +94,7 @@ export default function MilhasPage() {
         // Optimistic update, reverted if the request fails
         setEntries(prev => prev.map(e => (e.id === entry.id ? { ...e, status } : e)));
         try {
-            const res = await fetch(`http://localhost:3333/miles/${entry.id}`, {
+            const res = await fetch(`${API_BASE_URL}/miles/${entry.id}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ status }),

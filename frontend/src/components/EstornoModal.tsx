@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { CurrencyInput } from "@/components/ui/currency-input";
+import { API_BASE_URL } from "@/lib/auth";
 
 interface EstornoModalProps {
     transactionId: string;
@@ -42,7 +43,7 @@ export function EstornoModal({ transactionId, description, amount, onSuccess, ch
 
         setLoading(true);
         try {
-            const res = await fetch(`http://localhost:3333/card-transactions/${transactionId}/estorno`, {
+            const res = await fetch(`${API_BASE_URL}/card-transactions/${transactionId}/estorno`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ amount: reverseAmount, date }),

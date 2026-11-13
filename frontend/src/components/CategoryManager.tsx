@@ -6,6 +6,7 @@ import { PlusCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CreateCategoryModal, ApiCategory, ICONS_MAP } from "./CreateCategoryModal";
 import { cn } from "@/lib/utils";
+import { API_BASE_URL } from "@/lib/auth";
 
 export function CategoryManager() {
     const [categories, setCategories] = useState<ApiCategory[]>([]);
@@ -14,7 +15,7 @@ export function CategoryManager() {
     const loadCategories = useCallback(async () => {
         setIsLoading(true);
         try {
-            const res = await fetch("http://localhost:3333/categories");
+            const res = await fetch(`${API_BASE_URL}/categories`);
             if (res.ok) {
                 const data = await res.json();
                 setCategories(data);

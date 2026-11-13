@@ -60,8 +60,8 @@ import {
     filterDividendsData,
     fullMonthLabel,
 } from "@/lib/investments-dividends";
+import { API_BASE_URL } from "@/lib/auth";
 
-const API = "http://localhost:3333";
 
 const MONTH_HEADERS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
@@ -145,7 +145,7 @@ export default function ProventosPage() {
 
     const loadDividends = useCallback(async () => {
         try {
-            const res = await fetch(`${API}/investments/dividends`);
+            const res = await fetch(`${API_BASE_URL}/investments/dividends`);
             if (res.ok) {
                 const data = await res.json();
                 setDividends(data.dividends ?? []);
@@ -166,7 +166,7 @@ export default function ProventosPage() {
     const handleSync = async () => {
         setIsSyncing(true);
         try {
-            const res = await fetch(`${API}/investments/dividends/sync`, { method: "POST" });
+            const res = await fetch(`${API_BASE_URL}/investments/dividends/sync`, { method: "POST" });
             if (res.ok) {
                 const data = await res.json();
                 setDividends(data.dividends ?? []);

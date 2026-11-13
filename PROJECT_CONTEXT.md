@@ -33,9 +33,10 @@
 ### Variáveis de Ambiente
 - O backend carrega `../.env` (raiz do repositório) no `main.ts` e o Prisma lê `DATABASE_URL` via `backend/prisma.config.ts` e `backend/.env`.
 - Variáveis esperadas (ver `.env.example`):
-  - `DATABASE_URL`
+  - `DATABASE_URL` e `DIRECT_URL` (necessário para pooler + migrations no Supabase)
   - `BRAPI_TOKEN` (usado para cotações de ações/FIIs da B3 na `brapi.dev` e fallback de ações US)
-- **Atenção:** No frontend, a URL da API (`const API = "http://localhost:3333"`) está definida diretamente nos arquivos de páginas/helpers (`frontend/src/app/**/page.tsx`, `frontend/src/lib/dashboard-layout-api.ts`, etc.), sem `NEXT_PUBLIC_*`.
+  - `NEXT_PUBLIC_API_URL` (URL do backend no frontend; fallback para `http://localhost:3333` via `API_BASE_URL` em `frontend/src/lib/auth.ts`)
+- **Deploy Vercel + Supabase:** o backend possui handler serverless em `backend/api/index.ts` + `backend/vercel.json` (compartilhando `configureNestApp` em `backend/src/app.setup.ts`).
 
 ### Comandos Essenciais
 ```powershell

@@ -26,6 +26,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { holderLabel, holdersOf, mainHolder } from "@/lib/credit-cards";
+import { API_BASE_URL } from "@/lib/auth";
 
 interface ParsedTransaction {
     date: string;
@@ -79,7 +80,7 @@ function QuickCreateCategory({
         if (!name.trim()) return;
         setSaving(true);
         try {
-            const res = await fetch("http://localhost:3333/categories", {
+            const res = await fetch(`${API_BASE_URL}/categories`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name: name.trim() }),
@@ -177,7 +178,7 @@ export function PdfImportModal({ cards, categories: initialCategories, currentCa
             const formData = new FormData();
             formData.append("file", file);
 
-            const url = new URL(`http://localhost:3333/card-transactions/import-pdf`);
+            const url = new URL(`${API_BASE_URL}/card-transactions/import-pdf`);
             url.searchParams.set("creditCardId", selectedCardId);
             if (pdfPassword) url.searchParams.set("password", pdfPassword);
 
@@ -229,7 +230,7 @@ export function PdfImportModal({ cards, categories: initialCategories, currentCa
                 cardHolderId: tx._cardHolderId,
             }));
 
-            const res = await fetch("http://localhost:3333/card-transactions/import-pdf/confirm", {
+            const res = await fetch(`${API_BASE_URL}/card-transactions/import-pdf/confirm`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ creditCardId: selectedCardId, transactions: payload }),

@@ -22,6 +22,7 @@ import {
     Legend,
     ResponsiveContainer,
 } from "recharts";
+import { API_BASE_URL } from "@/lib/auth";
 
 interface Transaction {
     id: string;
@@ -89,8 +90,8 @@ export default function RelatoriosPage() {
             setIsLoading(true);
             try {
                 const [transRes, invRes] = await Promise.all([
-                    fetch(`http://localhost:3333/transactions?month=${selectedMonth}&year=${selectedYear}`),
-                    fetch("http://localhost:3333/investments"),
+                    fetch(`${API_BASE_URL}/transactions?month=${selectedMonth}&year=${selectedYear}`),
+                    fetch(`${API_BASE_URL}/investments`),
                 ]);
                 if (transRes.ok) setTransactions(await transRes.json());
                 if (invRes.ok) setInvestments(await invRes.json());
@@ -108,7 +109,7 @@ export default function RelatoriosPage() {
         const fetchAnnual = async () => {
             try {
                 const promises = Array.from({ length: 12 }, (_, i) =>
-                    fetch(`http://localhost:3333/transactions?month=${i + 1}&year=${selectedYear}`)
+                    fetch(`${API_BASE_URL}/transactions?month=${i + 1}&year=${selectedYear}`)
                 );
                 const results = await Promise.all(promises);
                 const data: { month: string; receitas: number; despesas: number }[] = [];

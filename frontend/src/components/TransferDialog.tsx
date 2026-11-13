@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { cn } from "@/lib/utils";
 import { type AccountLike, checkTransfer, transferableBalance } from "@/lib/accounts";
+import { API_BASE_URL } from "@/lib/auth";
 
 const todayKey = () => {
     const d = new Date();
@@ -62,7 +63,7 @@ export function TransferDialog({ accounts, onSuccess, children }: TransferDialog
         if (check.error) return toast.error(check.error);
         setSaving(true);
         try {
-            const res = await fetch("http://localhost:3333/accounts/transfers", {
+            const res = await fetch(`${API_BASE_URL}/accounts/transfers`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ fromAccountId: fromId, toAccountId: toId, amount, date, description: description || undefined }),
