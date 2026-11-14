@@ -34,7 +34,7 @@
 - O backend carrega `../.env` (raiz do repositório) no `main.ts` e o Prisma lê `DATABASE_URL` via `backend/prisma.config.ts` e `backend/.env`.
 - Variáveis esperadas (ver `.env.example`):
   - `DATABASE_URL` e `DIRECT_URL` (necessário para pooler + migrations no Supabase)
-  - `BRAPI_TOKEN` (usado para cotações de ações/FIIs da B3 na `brapi.dev` e fallback de ações US)
+  - `BRAPI_TOKEN` (opcional; apenas fallback). Cotações B3/FII vêm do Yahoo Finance (`<TICKER>.SA`, paralelo, sem cota); a `brapi.dev` só é chamada para tickers que o Yahoo não resolver.
   - `NEXT_PUBLIC_API_URL` (URL do backend no frontend; fallback para `http://localhost:3333` via `API_BASE_URL` em `frontend/src/lib/auth.ts`)
 - **Deploy Vercel + Supabase:** o backend possui handler serverless em `backend/api/index.ts` + `backend/vercel.json` (compartilhando `configureNestApp` em `backend/src/app.setup.ts`).
 

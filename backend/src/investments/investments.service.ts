@@ -60,6 +60,7 @@ export class InvestmentsService {
     private dividendEventsCache: Map<string, { fetchedAt: number; events: Array<{ date: Date; amountPerShare: number }> }> = new Map();
     private syncedInvestmentIds: Set<string> = new Set();
     private readonly DIVIDEND_CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
+    private readonly DIVIDEND_DB_FRESH_MS = 1000 * 60 * 60 * 12; // skip auto re-sync if synced in the last 12h
 
     // Map common crypto symbols (including Binance 1M/1000 bundle tokens) to Binance USDT pairs
     private readonly BINANCE_SYMBOL_MAP: Record<string, string> = {
@@ -456,13 +457,57 @@ export class InvestmentsService {
             toFetch = missing;
         }
 
-        const token = process.env.BRAPI_TOKEN;
-        if (!token) {
-            this.logger.warn(`BRAPI_TOKEN is not set in .env. Automatic price updates for ${toFetch.length} tickers will be skipped.`);
-            return;
-        }
-
         this.b3FetchInFlight = (async () => {
+            // 1. Primary: Yahoo Finance (<TICKER>.SA) — no key, no monthly quota, fetched in parallel
+            const results = await Promise.allSettled(
+                toFetch.map(async ticker => ({ ticker, price: await this.fetchB3PriceFromYahoo(ticker) })),
+            );
+            const missing: string[] = [];
+            for (const [index, result] of results.entries()) {
+                if (result.status === 'fulfilled' && result.value.price != null) {
+                    this.b3PriceCache.set(result.value.ticker, result.value.price);
+                } else {
+                    missing.push(toFetch[index]);
+                }
+            }
+
+            // 2. Fallback: brapi.dev only for tickers Yahoo could not resolve (saves the brapi quota)
+            const token = process.env.BRAPI_TOKEN;
+            if (missing.length > 0 && token) {
+                await this.fetchB3PricesFromBrapi(missing, token);
+            } else if (missing.length > 0) {
+                this.logger.warn(`No B3 price for ${missing.join(', ')} (Yahoo failed and BRAPI_TOKEN is not set).`);
+            }
+
+            this.b3CacheExpiry = Date.now() + this.B3_CACHE_TTL_MS;
+        })().finally(() => {
+            this.b3FetchInFlight = null;
+        });
+
+        return this.b3FetchInFlight;
+    }
+
+    private async fetchB3PriceFromYahoo(ticker: string): Promise<number | null> {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(`${ticker}.SA`)}?interval=1d&range=1d`;
+        try {
+            const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            if (!response.ok) {
+                this.logger.warn(`Yahoo Finance returned ${response.status} for ${ticker}.SA`);
+                return null;
+            }
+            const data = await response.json();
+            const meta = data?.chart?.result?.[0]?.meta;
+            if (meta?.regularMarketPrice == null) return null;
+            if (meta.currency && meta.currency !== 'BRL') return null;
+            return Number(meta.regularMarketPrice);
+        } catch (error) {
+            this.logger.warn(`Failed to fetch Yahoo price for ${ticker}.SA: ${error.message}`);
+            return null;
+        }
+    }
+
+    private async fetchB3PricesFromBrapi(toFetch: string[], token: string): Promise<void> {
+        {
             // The free tier of brapi.dev allows querying ONLY 1 asset per request and
             // rate-limits bursts, so tickers are fetched one at a time with a short pause.
             for (const [index, ticker] of toFetch.entries()) {
@@ -502,13 +547,7 @@ export class InvestmentsService {
                     this.logger.warn(`Failed to fetch B3 price for ${ticker}: ${error.message}`);
                 }
             }
-
-            this.b3CacheExpiry = Date.now() + this.B3_CACHE_TTL_MS;
-        })().finally(() => {
-            this.b3FetchInFlight = null;
-        });
-
-        return this.b3FetchInFlight;
+        }
     }
 
     private sleep(ms: number): Promise<void> {
@@ -858,9 +897,25 @@ export class InvestmentsService {
         });
 
         const eligible = investments.filter(i => this.isDividendEligible(i));
-        const unsynced = eligible.filter(i => !this.syncedInvestmentIds.has(i.id));
+        let unsynced = eligible.filter(i => !this.syncedInvestmentIds.has(i.id));
         if (unsynced.length > 0) {
-            await this.syncAllDividends(workspaceId, false);
+            // Serverless instances start with an empty in-memory cache, so use the DB
+            // (rows are recreated on every sync) to skip investments synced recently.
+            const lastSyncs = await this.prisma.investmentDividend.groupBy({
+                by: ['investmentId'],
+                where: { investmentId: { in: unsynced.map(i => i.id) } },
+                _max: { createdAt: true },
+            });
+            const freshSince = Date.now() - this.DIVIDEND_DB_FRESH_MS;
+            for (const row of lastSyncs) {
+                if (row._max.createdAt && row._max.createdAt.getTime() >= freshSince) {
+                    this.syncedInvestmentIds.add(row.investmentId);
+                }
+            }
+            unsynced = unsynced.filter(i => !this.syncedInvestmentIds.has(i.id));
+        }
+        if (unsynced.length > 0) {
+            await this.syncInvestmentsDividends(unsynced);
         }
 
         const dividends = await this.prisma.investmentDividend.findMany({
@@ -911,16 +966,21 @@ export class InvestmentsService {
             where: { workspaceId },
         });
         const eligible = investments.filter(i => this.isDividendEligible(i));
-
-        if (eligible.some(i => i.type === 'US_STOCK')) {
-            await this.fetchUsdRate();
-        }
-
-        for (const inv of eligible) {
-            await this.syncDividendsForInvestment(inv);
-        }
+        await this.syncInvestmentsDividends(eligible);
 
         return this.findAllDividends(workspaceId);
+    }
+
+    private async syncInvestmentsDividends(list: Investment[]): Promise<void> {
+        if (list.length === 0) return;
+        if (list.some(i => i.type === 'US_STOCK')) {
+            await this.fetchUsdRate();
+        }
+        // Limited concurrency: much faster than sequential without hammering Yahoo/DB
+        const CONCURRENCY = 5;
+        for (let i = 0; i < list.length; i += CONCURRENCY) {
+            await Promise.allSettled(list.slice(i, i + CONCURRENCY).map(inv => this.syncDividendsForInvestment(inv)));
+        }
     }
 
     async syncDividendsForInvestment(inv: Investment): Promise<void> {
