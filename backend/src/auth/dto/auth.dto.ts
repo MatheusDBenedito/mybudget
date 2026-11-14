@@ -31,9 +31,3 @@ export class RegisterDto {
     workspaceName?: string;
 }
 
-export class GoogleLoginDto {
-    @IsString()
-    @IsNotEmpty()
-    credential: string;
-}
-

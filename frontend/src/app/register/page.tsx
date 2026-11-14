@@ -7,7 +7,6 @@ import { Loader2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { API_BASE_URL } from "@/lib/auth";
 import { useAuth } from "@/components/AuthProvider";
-import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -131,7 +130,6 @@ export default function RegisterPage() {
               )}
               Criar conta
             </Button>
-            <GoogleSignInButton />
             <p className="text-center text-sm text-muted-foreground">
               Já possui conta?{" "}
               <Link href="/login" className="font-medium text-primary hover:underline">

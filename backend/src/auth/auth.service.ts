@@ -1,15 +1,13 @@
 import {
-    BadRequestException,
     ConflictException,
     Injectable,
     OnModuleInit,
     UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { OAuth2Client } from 'google-auth-library';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { GoogleLoginDto, LoginDto, RegisterDto } from './dto/auth.dto';
+import { LoginDto, RegisterDto } from './dto/auth.dto';
 import { hashPassword, verifyPassword } from './password.util';
 import { ensureBootstrapWorkspace, ensureRbacCatalog, filterPermissionsByPlan } from './rbac-catalog';
 import { seedDefaultWorkspaceData } from '../workspaces/default-workspace-seed';
@@ -43,107 +41,6 @@ export class AuthService implements OnModuleInit {
             !verifyPassword(dto.password, user.passwordHash)
         ) {
             throw new UnauthorizedException('E-mail ou senha inválidos.');
-        }
-
-        const accessToken = await this.jwtService.signAsync({
-            sub: user.id,
-            email: user.email,
-        });
-
-        const profile = await this.getProfile(user.id);
-        return { accessToken, ...profile };
-    }
-
-    async googleLogin(dto: GoogleLoginDto) {
-        const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
-        if (!clientId) {
-            throw new BadRequestException(
-                'Login com Google não configurado no servidor (GOOGLE_CLIENT_ID ausente).',
-            );
-        }
-
-        const oauthClient = new OAuth2Client(clientId);
-        let payload: { sub?: string; email?: string; email_verified?: boolean; name?: string } | undefined;
-        try {
-            const ticket = await oauthClient.verifyIdToken({
-                idToken: dto.credential,
-                audience: clientId,
-            });
-            payload = ticket.getPayload();
-        } catch {
-            throw new UnauthorizedException('Token do Google inválido ou expirado.');
-        }
-
-        if (!payload?.sub || !payload.email || !payload.email_verified) {
-            throw new UnauthorizedException('Conta Google sem e-mail verificado.');
-        }
-
-        const email = payload.email.trim().toLowerCase();
-        const displayName = payload.name?.trim() || email.split('@')[0];
-
-        let user = await this.prisma.user.findFirst({
-            where: {
-                OR: [{ googleId: payload.sub }, { email }],
-            },
-        });
-
-        if (user && !user.isActive) {
-            throw new UnauthorizedException('Usuário inativo.');
-        }
-
-        if (user) {
-            if (!user.googleId) {
-                user = await this.prisma.user.update({
-                    where: { id: user.id },
-                    data: { googleId: payload.sub },
-                });
-            }
-        } else {
-            const { roleMap, planMap } = await ensureRbacCatalog(this.prisma);
-            const ownerRoleId = roleMap.get('OWNER')!;
-            const defaultPlan = await this.prisma.plan.findFirst({ where: { isDefault: true } });
-            const defaultPlanId = defaultPlan?.id ?? planMap.get('PRO') ?? null;
-            const workspaceLabel = `Workspace de ${displayName}`;
-            const slug = `${slugify(workspaceLabel)}-${randomUUID().slice(0, 6)}`;
-
-            user = await this.prisma.$transaction(async (tx) => {
-                const createdUser = await tx.user.create({
-                    data: {
-                        name: displayName,
-                        email,
-                        googleId: payload.sub,
-                        passwordHash: null,
-                        isSuperAdmin: false,
-                        isActive: true,
-                        planId: defaultPlanId,
-                    },
-                });
-
-                const workspace = await tx.workspace.create({
-                    data: {
-                        name: workspaceLabel,
-                        slug,
-                        createdById: createdUser.id,
-                    },
-                });
-
-                await tx.workspaceUser.create({
-                    data: {
-                        workspaceId: workspace.id,
-                        userId: createdUser.id,
-                        roleId: ownerRoleId,
-                        status: 'ACTIVE',
-                    },
-                });
-
-                await tx.user.update({
-                    where: { id: createdUser.id },
-                    data: { defaultWorkspaceId: workspace.id },
-                });
-
-                await seedDefaultWorkspaceData(tx, workspace.id);
-                return createdUser;
-            });
         }
 
         const accessToken = await this.jwtService.signAsync({
