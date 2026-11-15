@@ -32,8 +32,16 @@ export class AuthService implements OnModuleInit {
     }
 
     async login(dto: LoginDto) {
-        const email = dto.email.trim().toLowerCase();
-        const user = await this.prisma.user.findUnique({ where: { email } });
+        const identifier = dto.email.trim().toLowerCase();
+        const user = await this.prisma.user.findFirst({
+            where: {
+                OR: [
+                    { email: identifier },
+                    { name: { equals: dto.email.trim(), mode: 'insensitive' } },
+                    { email: identifier.includes('@') ? identifier.split('@')[0] : `${identifier}@teste.com` },
+                ],
+            },
+        });
         if (
             !user ||
             !user.isActive ||
