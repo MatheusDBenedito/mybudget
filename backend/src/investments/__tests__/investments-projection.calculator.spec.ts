@@ -141,5 +141,53 @@ describe('calculateInvestmentsProjection', () => {
             result.months[0].fixedIncomeNetYield,
         );
     });
+
+    it('excludes FIIs that already paid in the current month from projectedFiiDividends of that month', () => {
+        const refToday = new Date('2026-11-15T12:00:00.000Z');
+        const investments = [
+            {
+                id: 'fii-mxrf',
+                name: 'MXRF11',
+                type: 'FII',
+                tickerCode: 'MXRF11',
+                quantity: 100,
+                investedAmount: 1000,
+                currentValue: 1000,
+            },
+        ];
+
+        // exDate 2026-10-30 -> paymentDate is 10th business day of Nov/2026 (2026-11-13 <= 2026-11-15)
+        const dividends = [
+            {
+                id: 'd-mxrf-nov',
+                investmentId: 'fii-mxrf',
+                tickerCode: 'MXRF11',
+                date: '2026-10-30T13:00:00.000Z',
+                amountPerShare: 0.10,
+                quantity: 100,
+                totalOriginal: 10.0,
+                currency: 'BRL',
+                totalBrl: 10.0,
+                investment: { id: 'fii-mxrf', name: 'MXRF11', type: 'FII' },
+            },
+        ];
+
+        const result = calculateInvestmentsProjection({
+            investments,
+            dividends,
+            startMonth: 11,
+            startYear: 2026,
+            monthsCount: 12,
+            today: refToday,
+        });
+
+        // Already paid in Nov/2026: scheduled is 0 and projectedFiiDividends for Nov/2026 must also be 0
+        expect(result.months[0].scheduledDividends).toBe(0);
+        expect(result.months[0].projectedFiiDividends).toBe(0);
+        // Dec/2026..Oct/2027 (11 months) still project 10.0/month
+        expect(result.months[1].projectedFiiDividends).toBe(10.0);
+        expect(result.summary.fiiMonthlyAverageBrl).toBe(10.0);
+        expect(result.summary.fiiTotal12mBrl).toBe(110.0);
+    });
 });
 

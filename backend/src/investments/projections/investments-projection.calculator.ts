@@ -239,19 +239,33 @@ export function calculateInvestmentsProjection({
     }
 
     // 1. Scheduled (PENDING) dividends with paymentDate > today
+    // Also track FIIs that already paid in a month so they aren't projected again in that month.
     const scheduledGroups = new Map<string, ScheduledDividendItem>();
     const scheduledFiiTickersByMonth = new Map<string, Set<string>>();
+    const paidFiiTickersByMonth = new Map<string, Set<string>>();
 
     for (const div of dividends) {
         const exDate = new Date(div.date);
         if (Number.isNaN(exDate.getTime())) continue;
         const payDate = estimateDividendPaymentDate(exDate, div.investment.type, div.tickerCode);
-        if (Number.isNaN(payDate.getTime()) || payDate.getTime() <= refEndTime) continue;
+        if (Number.isNaN(payDate.getTime())) continue;
 
         const payYear = payDate.getUTCFullYear();
         const payMonth = payDate.getUTCMonth() + 1;
         const mKey = formatMonthKey(payYear, payMonth);
         const ticker = div.tickerCode.trim().toUpperCase();
+
+        if (payDate.getTime() <= refEndTime) {
+            if (div.investment.type === 'FII') {
+                let set = paidFiiTickersByMonth.get(mKey);
+                if (!set) {
+                    set = new Set<string>();
+                    paidFiiTickersByMonth.set(mKey, set);
+                }
+                set.add(ticker);
+            }
+            continue;
+        }
 
         const bucket = monthMap.get(mKey);
         if (bucket) {
@@ -358,14 +372,15 @@ export function calculateInvestmentsProjection({
     fiiBreakdown.sort((a, b) => b.monthlyExpectedBrl - a.monthlyExpectedBrl || a.tickerCode.localeCompare(b.tickerCode));
     const fiiMonthlyAverageBrl = round2(fiiBreakdown.reduce((s, f) => s + f.monthlyExpectedBrl, 0));
 
-    // Populate projectedFiiDividends for each month >= currentIdx, skipping FIIs that already have a scheduled dividend in that month
+    // Populate projectedFiiDividends for each month >= currentIdx, skipping FIIs that already paid or have a scheduled dividend in that month
     for (const m of months) {
         const mIdx = monthIndex(m.year, m.month);
         if (mIdx < currentIdx) continue;
         const alreadyScheduled = scheduledFiiTickersByMonth.get(m.monthKey);
+        const alreadyPaid = paidFiiTickersByMonth.get(m.monthKey);
         let projectedMonth = 0;
         for (const fii of fiiBreakdown) {
-            if (alreadyScheduled?.has(fii.tickerCode)) continue;
+            if (alreadyScheduled?.has(fii.tickerCode) || alreadyPaid?.has(fii.tickerCode)) continue;
             projectedMonth += fii.monthlyExpectedBrl;
         }
         m.projectedFiiDividends = round2(projectedMonth);

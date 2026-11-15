@@ -1,5 +1,6 @@
 export interface DividendRowInput {
     date: Date;
+    paymentDate?: Date;
     amountPerShare: number;
     totalOriginal: number;
     currency: string;
@@ -84,6 +85,21 @@ export function resolveAccountLinkUpdate(
     };
 }
 
+export function calculateCreditDeltaForAccount(
+    row: Pick<DividendRowInput, 'totalOriginal' | 'currency' | 'totalBrl'>,
+    accountCurrency: string,
+    usdRate: number,
+): { brlDelta: number; usdDelta: number } {
+    const fxRate = usdRate > 0 ? usdRate : 5.6;
+    if (accountCurrency === 'USD') {
+        const usdDelta = row.currency === 'USD'
+            ? row.totalOriginal
+            : round2(row.totalBrl / fxRate);
+        return { brlDelta: round2(row.totalBrl), usdDelta: round2(usdDelta) };
+    }
+    return { brlDelta: round2(row.totalBrl), usdDelta: 0 };
+}
+
 export function planDividendCredits<T extends DividendRowInput>(params: {
     rows: T[];
     existingByKey: Map<string, ExistingDividendCredit>;
@@ -94,7 +110,6 @@ export function planDividendCredits<T extends DividendRowInput>(params: {
 }): DividendCreditPlan<T> {
     const now = params.now ?? new Date();
     const endToday = endOfUtcDay(now);
-    const fxRate = params.usdRate > 0 ? params.usdRate : 5.6;
 
     let newlyCreditedCount = 0;
     let brlDelta = 0;
@@ -112,11 +127,12 @@ export function planDividendCredits<T extends DividendRowInput>(params: {
             };
         }
 
+        const effectiveDate = row.paymentDate ?? row.date;
         const isEligibleForCredit =
             Boolean(params.account) &&
             Boolean(params.accountLinkedAt) &&
-            row.date >= params.accountLinkedAt! &&
-            row.date <= endToday &&
+            effectiveDate >= params.accountLinkedAt! &&
+            effectiveDate <= endToday &&
             row.totalOriginal > 0;
 
         if (!isEligibleForCredit || !params.account) {
@@ -128,17 +144,9 @@ export function planDividendCredits<T extends DividendRowInput>(params: {
         }
 
         newlyCreditedCount += 1;
-        if (params.account.currency === 'USD') {
-            if (row.currency === 'USD') {
-                usdDelta += row.totalOriginal;
-                brlDelta += row.totalBrl;
-            } else {
-                usdDelta += round2(row.totalBrl / fxRate);
-                brlDelta += row.totalBrl;
-            }
-        } else {
-            brlDelta += row.totalBrl;
-        }
+        const delta = calculateCreditDeltaForAccount(row, params.account.currency, params.usdRate);
+        brlDelta += delta.brlDelta;
+        usdDelta += delta.usdDelta;
 
         return {
             ...row,

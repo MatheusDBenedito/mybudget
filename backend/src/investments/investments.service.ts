@@ -4,9 +4,15 @@ import { UpdateInvestmentDto } from './dto/update-investment.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { Investment } from '@prisma/client';
 import { countBusinessDays } from './business-days.util';
-import { calculateInvestmentsProjection, InvestmentsProjectionResult } from './projections/investments-projection.calculator';
 import {
+    calculateInvestmentsProjection,
+    estimateDividendPaymentDate,
+    InvestmentsProjectionResult,
+} from './projections/investments-projection.calculator';
+import {
+    calculateCreditDeltaForAccount,
     dividendKey,
+    endOfUtcDay,
     ExistingDividendCredit,
     planDividendCredits,
     resolveAccountLinkUpdate,
@@ -918,6 +924,8 @@ export class InvestmentsService {
             await this.syncInvestmentsDividends(unsynced);
         }
 
+        await this.settleMaturedPendingDividends(workspaceId);
+
         const dividends = await this.prisma.investmentDividend.findMany({
             where: { investment: { workspaceId } },
             include: {
@@ -1017,6 +1025,7 @@ export class InvestmentsService {
                     investmentId: inv.id,
                     tickerCode: ticker,
                     date: ev.date,
+                    paymentDate: estimateDividendPaymentDate(ev.date, inv.type, ticker),
                     amountPerShare,
                     quantity: qty,
                     totalOriginal,
@@ -1057,10 +1066,12 @@ export class InvestmentsService {
             now,
         });
 
+        const dbRows = plan.rows.map(({ paymentDate: _paymentDate, ...row }) => row);
+
         await this.prisma.$transaction(async tx => {
             await tx.investmentDividend.deleteMany({ where: { investmentId: inv.id } });
-            if (plan.rows.length > 0) {
-                await tx.investmentDividend.createMany({ data: plan.rows, skipDuplicates: true });
+            if (dbRows.length > 0) {
+                await tx.investmentDividend.createMany({ data: dbRows, skipDuplicates: true });
             }
             if (linkedAccount && plan.newlyCreditedCount > 0 && (plan.brlDelta > 0 || plan.usdDelta > 0)) {
                 await tx.account.update({
@@ -1074,6 +1085,86 @@ export class InvestmentsService {
         });
 
         this.syncedInvestmentIds.add(inv.id);
+    }
+
+    /**
+     * Credits any previously stored uncredited dividends whose estimated payment date
+     * falls between the investment's accountLinkedAt and today, without waiting for
+     * the 12h external Yahoo Finance sync cache to expire.
+     */
+    private async settleMaturedPendingDividends(workspaceId: string): Promise<void> {
+        const pendingRows = await this.prisma.investmentDividend.findMany({
+            where: {
+                creditedAt: null,
+                totalOriginal: { gt: 0 },
+                investment: {
+                    workspaceId,
+                    accountId: { not: null },
+                    accountLinkedAt: { not: null },
+                },
+            },
+            include: {
+                investment: {
+                    select: {
+                        type: true,
+                        accountId: true,
+                        accountLinkedAt: true,
+                        purchaseExchangeRate: true,
+                        account: { select: { id: true, currency: true } },
+                    },
+                },
+            },
+        });
+
+        if (pendingRows.length === 0) return;
+
+        const now = new Date();
+        const endToday = endOfUtcDay(now);
+
+        const matured = pendingRows.filter(row => {
+            const linkedAt = row.investment.accountLinkedAt;
+            const account = row.investment.account;
+            if (!linkedAt || !account) return false;
+            const paymentDate = estimateDividendPaymentDate(row.date, row.investment.type, row.tickerCode);
+            return paymentDate >= linkedAt && paymentDate <= endToday;
+        });
+
+        if (matured.length === 0) return;
+
+        if (matured.some(r => r.currency === 'USD' || r.investment.account?.currency === 'USD')) {
+            await this.fetchUsdRate();
+        }
+
+        await this.prisma.$transaction(async tx => {
+            const deltasByAccount = new Map<string, { brlDelta: number; usdDelta: number }>();
+
+            for (const row of matured) {
+                const account = row.investment.account!;
+                const updated = await tx.investmentDividend.updateMany({
+                    where: { id: row.id, creditedAt: null },
+                    data: { creditedAccountId: account.id, creditedAt: now },
+                });
+                if (updated.count !== 1) continue;
+
+                const fxRate = this.usdRate ?? row.investment.purchaseExchangeRate ?? 5.6;
+                const delta = calculateCreditDeltaForAccount(row, account.currency, fxRate);
+                const prev = deltasByAccount.get(account.id) ?? { brlDelta: 0, usdDelta: 0 };
+                prev.brlDelta = Number((prev.brlDelta + delta.brlDelta).toFixed(2));
+                prev.usdDelta = Number((prev.usdDelta + delta.usdDelta).toFixed(2));
+                deltasByAccount.set(account.id, prev);
+            }
+
+            for (const [accountId, delta] of deltasByAccount.entries()) {
+                if (delta.brlDelta <= 0 && delta.usdDelta <= 0) continue;
+                await tx.account.update({
+                    where: { id: accountId },
+                    data: {
+                        ...(delta.brlDelta > 0 ? { balance: { increment: delta.brlDelta } } : {}),
+                        ...(delta.usdDelta > 0 ? { balanceUsd: { increment: delta.usdDelta } } : {}),
+                    },
+                });
+            }
+        });
     }
 
     private async ensureAccountInWorkspace(workspaceId: string, accountId: string | null): Promise<void> {

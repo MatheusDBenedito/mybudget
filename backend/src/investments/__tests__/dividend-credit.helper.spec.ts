@@ -159,6 +159,43 @@ describe('dividend-credit.helper', () => {
             });
             expect(planNoAccount.newlyCreditedCount).toBe(0);
         });
+
+        it('uses paymentDate for eligibility when provided (credits paid-after-link even with pre-link exDate, and defers future paymentDate)', () => {
+            const plan = planDividendCredits({
+                rows: [
+                    {
+                        // exDate before linkedAt (2026-11-10), but paymentDate is 2026-11-13 (today) -> MUST credit
+                        date: new Date('2026-10-30T13:00:00.000Z'),
+                        paymentDate: new Date('2026-11-13T13:00:00.000Z'),
+                        amountPerShare: 0.1,
+                        totalOriginal: 29.27,
+                        currency: 'BRL',
+                        totalBrl: 29.27,
+                    },
+                    {
+                        // exDate is today, but paymentDate is in the future (2026-11-18) -> MUST NOT credit yet
+                        date: new Date('2026-11-13T13:00:00.000Z'),
+                        paymentDate: new Date('2026-11-18T13:00:00.000Z'),
+                        amountPerShare: 0.2,
+                        totalOriginal: 20.0,
+                        currency: 'BRL',
+                        totalBrl: 20.0,
+                    },
+                ],
+                existingByKey: new Map(),
+                account: { id: 'xp-brl', currency: 'BRL' },
+                accountLinkedAt: linkedAt,
+                usdRate: 5.6,
+                now,
+            });
+
+            expect(plan.newlyCreditedCount).toBe(1);
+            expect(plan.brlDelta).toBe(29.27);
+            expect(plan.rows[0].creditedAccountId).toBe('xp-brl');
+            expect(plan.rows[0].creditedAt).toEqual(now);
+            expect(plan.rows[1].creditedAccountId).toBeNull();
+            expect(plan.rows[1].creditedAt).toBeNull();
+        });
     });
 });
 
