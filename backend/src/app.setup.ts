@@ -1,12 +1,16 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ExpressAdapter } from '@nestjs/platform-express';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 /**
  * Configures global CORS and validation pipes on a NestJS application instance.
  */
 export function configureNestApp(app: INestApplication): void {
+  app.use(json({ limit: '50mb' }));
+  app.use(urlencoded({ limit: '50mb', extended: true }));
+
   const vercelOrigins = [
     process.env.VERCEL_URL,
     process.env.VERCEL_BRANCH_URL,

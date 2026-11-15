@@ -37,6 +37,7 @@ export const AUTH_TOKEN_STORAGE_KEY = 'myfinance_auth_token';
 export const ACTIVE_WORKSPACE_STORAGE_KEY = 'myfinance_active_workspace_id';
 export const REMEMBERED_LOGIN_STORAGE_KEY = 'myfinance_remembered_login';
 export const LAST_ACTIVITY_STORAGE_KEY = 'myfinance_last_activity_at';
+export const SUPER_ADMIN_STORAGE_KEY = 'myfinance_is_super_admin';
 export const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
 
 export function getAuthStorageValue(key: string): string | null {
@@ -101,6 +102,7 @@ export function canAccessRoute(
   }
   if (pathname.startsWith('/cartoes')) return hasPermission(perms, 'view:cartao');
   if (pathname.startsWith('/investimentos')) return hasPermission(perms, 'view:investimentos');
+  if (pathname.startsWith('/financiamentos')) return hasPermission(perms, 'view:financiamentos');
   if (pathname.startsWith('/milhas')) return hasPermission(perms, 'view:milhas');
   if (pathname.startsWith('/relatorios')) return hasAnyPermission(perms, ['view:fluxo_caixa', 'view:resumo']);
   return true;

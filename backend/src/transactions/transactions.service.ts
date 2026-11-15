@@ -152,6 +152,51 @@ export class TransactionsService {
         // Project fixed transactions from previous months
         if (month && year) {
             const startDate = new Date(year, month - 1, 1);
+            const endDate = new Date(year, month, 1);
+
+            const linkedFinancings = this.prisma.financing
+                ? await this.prisma.financing.findMany({
+                      where: {
+                          workspaceId,
+                          linkedFixedDescription: { not: null },
+                      },
+                      include: {
+                          installments: {
+                              where: { dueDate: { gte: startDate, lt: endDate } },
+                              orderBy: [{ installmentNumber: 'asc' }],
+                          },
+                      },
+                  })
+                : [];
+
+            const financingBySeries = new Map<
+                string,
+                (typeof linkedFinancings)[number]
+            >();
+            for (const fin of linkedFinancings) {
+                if (fin.linkedFixedDescription) {
+                    financingBySeries.set(
+                        seriesKey('EXPENSE', fin.linkedFixedDescription),
+                        fin,
+                    );
+                }
+            }
+
+            // Tag real transactions matching a linked financing
+            for (const tx of transactions) {
+                if (!tx.isFixed) continue;
+                const linked = financingBySeries.get(seriesKey(tx.type, tx.description));
+                if (linked) {
+                    const inst = linked.installments[0];
+                    (tx as any).linkedFinancing = {
+                        id: linked.id,
+                        name: linked.name,
+                        bankName: linked.bankName,
+                        installmentNumber: inst?.installmentNumber ?? null,
+                        totalMonths: linked.totalMonths,
+                    };
+                }
+            }
 
             const fixedTransactions = await this.prisma.transaction.findMany({
                 where: {
@@ -182,11 +227,25 @@ export class TransactionsService {
 
                 if (!alreadyExists) {
                     const projectedDate = clampedMonthDate(year, month, new Date(fixed.date).getDate());
+                    const linked = financingBySeries.get(key);
+                    const inst = linked?.installments[0];
                     transactions.push({
                         ...fixed,
                         id: `projected-${fixed.id}-${year}-${month}`,
                         date: projectedDate,
                         status: 'PENDING',
+                        ...(inst ? { amount: Number(inst.totalAmount.toFixed(2)) } : {}),
+                        ...(linked
+                            ? {
+                                  linkedFinancing: {
+                                      id: linked.id,
+                                      name: linked.name,
+                                      bankName: linked.bankName,
+                                      installmentNumber: inst?.installmentNumber ?? null,
+                                      totalMonths: linked.totalMonths,
+                                  },
+                              }
+                            : {}),
                     } as any);
                 }
             }

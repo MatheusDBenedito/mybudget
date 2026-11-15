@@ -22,6 +22,13 @@ export type ApiTransaction = {
     accountId?: string;
     categoryId?: string | null;
     category?: { id?: string; name: string; color: string | null; icon?: string } | null;
+    linkedFinancing?: {
+        id: string;
+        name: string;
+        bankName: string;
+        installmentNumber: number | null;
+        totalMonths: number;
+    } | null;
 };
 
 interface MonthTransactionsProps {
@@ -88,9 +95,19 @@ export function MonthTransactions({ transactions, isLoading, onToggleStatus, onD
                     <TableRow key={t.id}>
                         <TableCell className="text-muted-foreground tabular-nums">{formatDate(t.date)}</TableCell>
                         <TableCell>
-                            <span className="inline-flex items-center gap-1.5">
+                            <span className="inline-flex flex-wrap items-center gap-1.5">
                                 {t.description}
                                 {t.isFixed && <Repeat className="h-3.5 w-3.5 text-muted-foreground" aria-label="Fixa" />}
+                                {t.linkedFinancing && (
+                                    <span
+                                        title={`Vinculado ao financiamento ${t.linkedFinancing.name} (${t.linkedFinancing.bankName})`}
+                                        className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
+                                    >
+                                        {t.linkedFinancing.installmentNumber
+                                            ? `${t.linkedFinancing.name} • ${t.linkedFinancing.installmentNumber}/${t.linkedFinancing.totalMonths}`
+                                            : t.linkedFinancing.name}
+                                    </span>
+                                )}
                             </span>
                         </TableCell>
                         <TableCell><CategoryChip category={t.category} /></TableCell>

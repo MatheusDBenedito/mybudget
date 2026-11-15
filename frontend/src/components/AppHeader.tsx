@@ -23,6 +23,7 @@ import {
   Tags,
   Landmark,
   Link2,
+  Home,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePrivacy } from "@/lib/privacy";
@@ -72,6 +73,7 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   { href: "/cartoes", label: "Cartões", icon: CreditCard, requiredAny: ["view:cartao"] },
+  { href: "/financiamentos", label: "Financiamentos", icon: Home, requiredAny: ["view:financiamentos"] },
   { href: "/milhas", label: "Milhas", icon: Plane, requiredAny: ["view:milhas"] },
   { href: "/relatorios", label: "Relatórios", icon: ChartColumn, requiredAny: ["view:fluxo_caixa"] },
   {

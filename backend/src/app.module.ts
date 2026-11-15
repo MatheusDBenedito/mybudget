@@ -22,6 +22,7 @@ import { CashFlowModule } from './cash-flow/cash-flow.module';
 import { DashboardLayoutModule } from './dashboard-layout/dashboard-layout.module';
 import { CardHoldersModule } from './card-holders/card-holders.module';
 import { OpenFinanceModule } from './open-finance/open-finance.module';
+import { FinancingsModule } from './financings/financings.module';
 
 @Module({
     imports: [
@@ -43,6 +44,7 @@ import { OpenFinanceModule } from './open-finance/open-finance.module';
         CashFlowModule,
         DashboardLayoutModule,
         OpenFinanceModule,
+        FinancingsModule,
     ],
     controllers: [AppController],
     providers: [

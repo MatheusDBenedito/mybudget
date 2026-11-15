@@ -9,6 +9,7 @@ import {
   AUTH_TOKEN_STORAGE_KEY,
   INACTIVITY_TIMEOUT_MS,
   LAST_ACTIVITY_STORAGE_KEY,
+  SUPER_ADMIN_STORAGE_KEY,
   canAccessRoute,
   getAuthStorageValue,
   hasAnyPermission as checkAnyPermission,
@@ -101,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
       window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
       window.localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
+      window.localStorage.removeItem(SUPER_ADMIN_STORAGE_KEY);
       window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
       window.sessionStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
     }
@@ -136,8 +138,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         data.user.defaultWorkspaceId,
       );
 
-      if (typeof window !== "undefined" && resolved) {
-        window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, resolved.id);
+      if (typeof window !== "undefined") {
+        if (resolved) {
+          window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, resolved.id);
+        }
+        if (data.user.isSuperAdmin) {
+          window.localStorage.setItem(SUPER_ADMIN_STORAGE_KEY, "true");
+        } else {
+          window.localStorage.removeItem(SUPER_ADMIN_STORAGE_KEY);
+        }
       }
 
       setUser(data.user);
@@ -155,6 +164,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         window.sessionStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
         window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, payload.accessToken);
         window.localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
+        if (payload.user.isSuperAdmin) {
+          window.localStorage.setItem(SUPER_ADMIN_STORAGE_KEY, "true");
+        } else {
+          window.localStorage.removeItem(SUPER_ADMIN_STORAGE_KEY);
+        }
 
         const preferredId = payload.activeWorkspace?.id ?? payload.workspaces[0]?.id ?? null;
         if (preferredId) {
@@ -177,8 +191,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const isSuperAdminStored = window.localStorage.getItem(SUPER_ADMIN_STORAGE_KEY) === "true";
     const lastActivityRaw = window.localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY);
-    if (lastActivityRaw && Date.now() - Number(lastActivityRaw) >= INACTIVITY_TIMEOUT_MS) {
+    if (!isSuperAdminStored && lastActivityRaw && Date.now() - Number(lastActivityRaw) >= INACTIVITY_TIMEOUT_MS) {
       clearAuth();
       setLoading(false);
       return;
@@ -212,6 +227,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined" || !user) return;
+    if (user.isSuperAdmin) return;
 
     let timer: number | undefined;
     let lastRecordedAt = Number(window.localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY) || Date.now());

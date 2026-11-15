@@ -34,6 +34,10 @@ export const DEFAULT_PERMISSIONS: PermissionSeed[] = [
     { code: 'create:milhas', module: 'milhas', action: 'create', description: 'Criar lançamentos de milhas' },
     { code: 'edit:milhas', module: 'milhas', action: 'edit', description: 'Editar lançamentos de milhas' },
     { code: 'delete:milhas', module: 'milhas', action: 'delete', description: 'Excluir lançamentos de milhas' },
+    { code: 'view:financiamentos', module: 'financiamentos', action: 'view', description: 'Visualizar financiamentos imobiliários' },
+    { code: 'create:financiamentos', module: 'financiamentos', action: 'create', description: 'Criar financiamentos e amortizações' },
+    { code: 'edit:financiamentos', module: 'financiamentos', action: 'edit', description: 'Editar financiamentos e importar extratos' },
+    { code: 'delete:financiamentos', module: 'financiamentos', action: 'delete', description: 'Excluir financiamentos e amortizações' },
     { code: 'view:membros', module: 'workspace', action: 'view', description: 'Visualizar membros do workspace' },
     { code: 'manage:membros', module: 'workspace', action: 'manage_members', description: 'Convidar, alterar perfis e remover membros' },
     { code: 'manage:workspace', module: 'workspace', action: 'manage', description: 'Gerenciar configurações do workspace' },
@@ -77,6 +81,10 @@ export const DEFAULT_ROLE_DEFINITIONS: {
             'create:milhas',
             'edit:milhas',
             'delete:milhas',
+            'view:financiamentos',
+            'create:financiamentos',
+            'edit:financiamentos',
+            'delete:financiamentos',
             'view:membros',
         ],
     },
@@ -121,6 +129,7 @@ export const DEFAULT_PLAN_DEFINITIONS = [
             'fluxo_caixa',
             'cartao',
             'investimentos',
+            'financiamentos',
             'conta',
             'categoria',
             'membros',
@@ -187,14 +196,14 @@ export async function ensureRbacCatalog(prisma: PrismaClient) {
         }
         roleMap.set(roleDef.code, role.id);
 
-        // Ensure default role permissions are attached (never strips custom admin additions if role already existed, only adds missing defaults on fresh role)
-        const existingCount = await prisma.rolePermission.count({ where: { roleId: role.id } });
-        if (existingCount === 0) {
+        // Ensure default role permissions are attached (skipDuplicates ensures we don't duplicate existing, and never strips custom additions)
+        const targetPermissionIds = roleDef.permissions
+            .map((code) => permissionMap.get(code))
+            .filter((id): id is string => !!id);
+
+        if (targetPermissionIds.length > 0) {
             await prisma.rolePermission.createMany({
-                data: roleDef.permissions
-                    .map((code) => permissionMap.get(code))
-                    .filter((id): id is string => !!id)
-                    .map((permissionId) => ({ roleId: role.id, permissionId })),
+                data: targetPermissionIds.map((permissionId) => ({ roleId: role.id, permissionId })),
                 skipDuplicates: true,
             });
         }
@@ -213,6 +222,18 @@ export async function ensureRbacCatalog(prisma: PrismaClient) {
                     isDefault: planDef.isDefault,
                 },
             });
+        } else {
+            const missingModules = planDef.allowedModules.filter(
+                (m) => !plan!.allowedModules.includes(m),
+            );
+            if (missingModules.length > 0) {
+                plan = await prisma.plan.update({
+                    where: { id: plan.id },
+                    data: {
+                        allowedModules: [...plan.allowedModules, ...missingModules],
+                    },
+                });
+            }
         }
         planMap.set(planDef.code, plan.id);
     }

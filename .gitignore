@@ -22,3 +22,7 @@ Thumbs.db
 # Local database backups (personal financial data)
 backend/prisma/backup-data.json
 *.backup.json
+.vercel
+.env*
+graphify-out/
+.graphify/

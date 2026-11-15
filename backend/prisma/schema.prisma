@@ -103,6 +103,7 @@ model Workspace {
   accountTransfers       AccountTransfer[]
   dashboardLayouts       DashboardLayout[]
   openFinanceConnections OpenFinanceConnection[]
+  financings             Financing[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -591,4 +592,113 @@ model OpenFinanceAccountMap {
   updatedAt         DateTime              @updatedAt
 
   @@index([connectionId])
+}
+
+enum AmortizationSystem {
+  SAC
+  PRICE
+}
+
+enum FinancingIndexer {
+  TR
+  IPCA
+  POUPANCA
+  FIXO
+}
+
+enum FinancingInstallmentStatus {
+  PAID
+  PENDING
+}
+
+enum ExtraAmortizationStrategy {
+  REDUCE_TERM
+  REDUCE_INSTALLMENT
+}
+
+enum ExtraAmortizationSource {
+  OWN_FUNDS
+  FGTS
+}
+
+model Financing {
+  id                  String               @id @default(uuid())
+  workspaceId         String
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name                String
+  bankName            String
+  contractNumber      String?
+  propertyAddress     String?
+  system              AmortizationSystem   @default(SAC)
+  indexer             FinancingIndexer     @default(TR)
+  propertyValue       Float
+  downPayment         Float                @default(0)
+  financedAmount      Float
+  currentBalance      Float
+  nominalRateAnnual   Float
+  effectiveRateAnnual Float?
+  cetAnnual           Float?
+  totalMonths         Int
+  dueDay              Int                  @default(21)
+  contractDate        DateTime
+  releaseDate         DateTime?
+  monthlyAdminFee     Float                @default(25)
+  monthlyInsurance    Float                @default(0)
+  fgtsBalance            Float                @default(0)
+  lastFgtsUsageDate      DateTime?
+  linkedFixedDescription String?
+  notes                  String?
+
+  installments        FinancingInstallment[]
+  extraAmortizations  FinancingExtraAmortization[]
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([workspaceId])
+}
+
+model FinancingInstallment {
+  id                 String                     @id @default(uuid())
+  financingId        String
+  financing          Financing                  @relation(fields: [financingId], references: [id], onDelete: Cascade)
+  installmentCode    String
+  installmentNumber  Int?
+  dueDate            DateTime
+  paidDate           DateTime?
+  status             FinancingInstallmentStatus @default(PENDING)
+  totalAmount        Float
+  principalAmount    Float
+  interestAmount     Float
+  mipAmount          Float                      @default(0)
+  dfiAmount          Float                      @default(0)
+  tsaAmount          Float                      @default(0)
+  fineAmount         Float                      @default(0)
+  monetaryCorrection Float                      @default(0)
+  paidAmount         Float                      @default(0)
+  balanceAfter       Float
+
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@unique([financingId, installmentCode])
+  @@index([financingId, status])
+  @@index([financingId, dueDate])
+}
+
+model FinancingExtraAmortization {
+  id                  String                    @id @default(uuid())
+  financingId         String
+  financing           Financing                 @relation(fields: [financingId], references: [id], onDelete: Cascade)
+  date                DateTime
+  amount              Float
+  strategy            ExtraAmortizationStrategy @default(REDUCE_TERM)
+  source              ExtraAmortizationSource   @default(OWN_FUNDS)
+  installmentsReduced Int                       @default(0)
+  notes               String?
+
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  @@index([financingId, date])
 }
