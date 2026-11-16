@@ -33,7 +33,7 @@ export class CashFlowService {
      * Spreadsheet-style cash flow for `count` months starting at month/year.
      * Reuses the same projection rules as the rest of the app (fixed transactions and card invoices),
      * so card rows update as soon as purchases are added to an invoice.
-     * Uses the gross balance (valor bruto) sum across all accounts + investments as openingBalance.
+     * Uses the net balance (saldo líquido) across all accounts + investments gross as openingBalance.
      */
     async getCashFlow(workspaceId: string, month: number, year: number, count: number, today = new Date()): Promise<CashFlowResult> {
         const [accounts, investments, cards] = await Promise.all([
@@ -53,9 +53,9 @@ export class CashFlowService {
                 orderBy: { createdAt: 'asc' },
             }),
         ]);
-        const accountsGross = accounts.reduce((acc, a) => acc + (a.grossBalance ?? a.balance), 0);
+        const accountsNet = accounts.reduce((acc, a) => acc + a.balance, 0);
         const investmentsGross = investments.reduce((acc, inv) => acc + investmentGrossValue(inv), 0);
-        const openingBalance = Math.round((accountsGross + investmentsGross) * 100) / 100;
+        const openingBalance = Math.round((accountsNet + investmentsGross) * 100) / 100;
 
         const start = monthIndex(year, month);
         const current = monthIndex(today.getFullYear(), today.getMonth() + 1);

@@ -325,6 +325,8 @@ Qualquer plano executado neste projeto deve preservar estas regras:
   - `backend/src/investments/investments.service.ts`: `grossValue` de títulos de `FIXED_INCOME` é truncado em 2 casas decimais por lote (`Math.trunc((grossValue + 1e-9) * 100) / 100`) antes da soma da carteira, alinhando o total bruto centavo a centavo com o padrão bancário/B3.
 - **Reajuste em Grupo de Parcelas de Cartão na Edição (`card-transactions`):**
   - `backend/src/card-transactions/helpers/installment-group-update.helper.ts` (`extractInstallmentNumber`, `planInstallmentGroupSchedule`) e `card-transactions.service.ts` (`update`): ao editar a data da compra, cartão, portador ou categoria de uma parcela pertencente a `installmentGroupId`, o sistema recalcula `date` e `invoiceDate` de **todas as parcelas do grupo** (anteriores e posteriores) mantendo o deslocamento mensal relativo ao sufixo `(k/N)`.
+- **Saldo Líquido das Contas no Fluxo de Caixa (`cash-flow`):**
+  - `backend/src/cash-flow/cash-flow.service.ts` e `frontend/src/app/fluxo-de-caixa/page.tsx`: o card **Contas e Investimentos** e o `openingBalance` passaram a considerar o **saldo líquido (`balance`)** das contas bancárias (incluindo contas remuneradas/cofrinhos), em vez do `grossBalance` com IR somado.
 
 
 

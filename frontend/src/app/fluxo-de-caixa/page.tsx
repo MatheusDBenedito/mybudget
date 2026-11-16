@@ -162,9 +162,8 @@ export default function FluxoDeCaixaPage() {
     const expenses = cashFlow?.summary.expenses[0] ?? 0;
     const openIncome = cashFlow?.summary.openIncome[0] ?? 0;
     const openExpenses = cashFlow?.summary.openExpenses[0] ?? 0;
-    const accountGross = (a: ApiAccount) => a.grossBalance ?? a.balance;
     const investmentsTotal = investments.reduce((acc, inv) => acc + grossValueOf(inv), 0);
-    const accountsTotal = accounts.reduce((acc, a) => acc + accountGross(a), 0) + investmentsTotal;
+    const accountsTotal = accounts.reduce((acc, a) => acc + a.balance, 0) + investmentsTotal;
     const today = { year: now.getFullYear(), month: now.getMonth() + 1 };
 
     return (
@@ -193,14 +192,14 @@ export default function FluxoDeCaixaPage() {
 
             {/* Recebimentos, Despesas and Contas; Contas is pinned to the right (below on small screens) */}
             <div className="grid gap-4 sm:grid-cols-3">
-                <StatCard title="Contas e Investimentos" icon={Landmark} info="Saldo bruto atual de cada conta bancária (incluindo cofrinhos) somado aos investimentos." className="sm:order-3">
+                <StatCard title="Contas e Investimentos" icon={Landmark} info="Saldo líquido atual de cada conta bancária (incluindo cofrinhos) somado aos investimentos." className="sm:order-3">
                     <ul className="space-y-1 text-sm">
                         {accounts.map(acc => {
-                            const gross = accountGross(acc);
+                            const balance = acc.balance;
                             return (
                                 <li key={acc.id} className="flex justify-between gap-2">
                                     <span className="truncate text-muted-foreground">{acc.name}</span>
-                                    <span className={`tabular-nums ${gross < 0 ? "text-negative" : ""}`}><Money value={gross} /></span>
+                                    <span className={`tabular-nums ${balance < 0 ? "text-negative" : ""}`}><Money value={balance} /></span>
                                 </li>
                             );
                         })}
