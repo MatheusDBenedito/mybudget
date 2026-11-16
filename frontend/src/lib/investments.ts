@@ -296,6 +296,7 @@ export type ClassStats = {
     count: number;
     contributionsCount: number;
     invested: number;
+    gross: number;
     current: number;
     profit: number;
     profitPct: number;
@@ -305,12 +306,14 @@ export type ClassStats = {
 export const computeClassStats = (invs: ApiInvestment[], portfolioTotal: number): ClassStats => {
     const consolidated = consolidateInvestments(invs);
     const invested = invs.reduce((acc, i) => acc + i.investedAmount, 0);
+    const gross = invs.reduce((acc, i) => acc + grossValueOf(i), 0);
     const current = invs.reduce((acc, i) => acc + currentValueOf(i), 0);
     const profit = current - invested;
     return {
         count: consolidated.length,
         contributionsCount: invs.length,
         invested,
+        gross,
         current,
         profit,
         profitPct: invested > 0 ? (profit / invested) * 100 : 0,

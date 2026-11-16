@@ -122,8 +122,20 @@ describe("consolidateInvestments", () => {
         assert.equal(stats.count, 2);
         assert.equal(stats.contributionsCount, 3);
         assert.equal(stats.invested, 1000);
+        assert.equal(stats.gross, 1200);
         assert.equal(stats.current, 1200);
         assert.equal(stats.profit, 200);
+    });
+
+    test("computeClassStats soma grossValueOf para renda fixa com IR", () => {
+        const raw: ApiInvestment[] = [
+            { id: "rf1", name: "CDB A", type: "FIXED_INCOME", investedAmount: 1000, currentValue: 1085, grossValue: 1100, netValue: 1085, taxAmount: 15 },
+            { id: "rf2", name: "CDB B", type: "FIXED_INCOME", investedAmount: 2000, currentValue: 2170, grossValue: 2200, netValue: 2170, taxAmount: 30 },
+        ];
+        const stats = computeClassStats(raw, 3255);
+        assert.equal(stats.gross, 3300);
+        assert.equal(stats.current, 3255);
+        assert.equal(stats.invested, 3000);
     });
 
     test("assetGroupKey usa o nome normalizado quando não há tickerCode", () => {

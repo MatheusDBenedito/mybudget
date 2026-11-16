@@ -63,7 +63,14 @@ export function InvestmentSection({ title, icon: Icon, stats, isOpen, onToggle, 
 
                 <div className="grid w-full grid-cols-2 gap-x-6 gap-y-3 pl-[30px] sm:flex sm:w-auto sm:gap-x-10 sm:pl-0">
                     <Metric label="Ativos" className="sm:min-w-[48px]">{stats.count}</Metric>
-                    <Metric label="Valor total" className="sm:min-w-[120px]"><Money value={stats.current} /></Metric>
+                    <Metric label="Valor total" className="sm:min-w-[120px]">
+                        <Money value={stats.current} />
+                        {stats.gross - stats.current > 0.01 && (
+                            <div className="text-[11px] font-normal text-muted-foreground">
+                                Bruto: <Money value={stats.gross} />
+                            </div>
+                        )}
+                    </Metric>
                     <Metric label="Variação" className="sm:min-w-[110px]">
                         <TrendText value={stats.profit} label=<Money value={stats.profit} /> />
                     </Metric>
