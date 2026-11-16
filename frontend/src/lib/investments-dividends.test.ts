@@ -181,5 +181,41 @@ describe("investments-dividends", () => {
         assert.equal(pendingGroups[0].quantity, 45);
         assert.equal(pendingGroups[0].totalBrl, 4.28);
     });
+
+    test("calcula 10º dia útil ANBIMA (com Finados em 02/11) para BTHF11, HGLG11, MXRF11 e HGBS11 em nov/2026 como 2026-11-16 (PAID)", () => {
+        const refDate = new Date("2026-11-16T12:00:00.000Z");
+        const novFiiDivs: ApiInvestmentDividend[] = [
+            {
+                id: "b1",
+                investmentId: "inv-bthf",
+                tickerCode: "BTHF11",
+                date: "2026-11-10T13:00:00.000Z",
+                amountPerShare: 0.101,
+                quantity: 100,
+                totalOriginal: 10.1,
+                currency: "BRL",
+                totalBrl: 10.1,
+                investment: { id: "inv-bthf", name: "BTHF11", type: "FII", tickerCode: "BTHF11", sector: "FII", investmentDate: null, quantity: 100, investedAmount: 900 },
+            },
+            {
+                id: "h1",
+                investmentId: "inv-hglg",
+                tickerCode: "HGLG11",
+                date: "2026-11-03T13:00:00.000Z",
+                amountPerShare: 1.17,
+                quantity: 10,
+                totalOriginal: 11.7,
+                currency: "BRL",
+                totalBrl: 11.7,
+                investment: { id: "inv-hglg", name: "HGLG11", type: "FII", tickerCode: "HGLG11", sector: "FII", investmentDate: null, quantity: 10, investedAmount: 1600 },
+            },
+        ];
+
+        const enriched = enrichDividendsWithStatus(novFiiDivs, refDate);
+        assert.equal(enriched[0]?.paymentDate?.slice(0, 10), "2026-11-16");
+        assert.equal(enriched[0]?.status, "PAID");
+        assert.equal(enriched[1]?.paymentDate?.slice(0, 10), "2026-11-16");
+        assert.equal(enriched[1]?.status, "PAID");
+    });
 });
 

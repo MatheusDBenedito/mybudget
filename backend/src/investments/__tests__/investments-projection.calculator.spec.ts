@@ -1,4 +1,7 @@
-import { calculateInvestmentsProjection } from '../projections/investments-projection.calculator';
+import {
+    calculateInvestmentsProjection,
+    estimateDividendPaymentDate,
+} from '../projections/investments-projection.calculator';
 
 describe('calculateInvestmentsProjection', () => {
     const today = new Date('2026-11-12T12:00:00.000Z');
@@ -143,7 +146,7 @@ describe('calculateInvestmentsProjection', () => {
     });
 
     it('excludes FIIs that already paid in the current month from projectedFiiDividends of that month', () => {
-        const refToday = new Date('2026-11-15T12:00:00.000Z');
+        const refToday = new Date('2026-11-16T12:00:00.000Z');
         const investments = [
             {
                 id: 'fii-mxrf',
@@ -188,6 +191,19 @@ describe('calculateInvestmentsProjection', () => {
         expect(result.months[1].projectedFiiDividends).toBe(10.0);
         expect(result.summary.fiiMonthlyAverageBrl).toBe(10.0);
         expect(result.summary.fiiTotal12mBrl).toBe(110.0);
+    });
+
+    it('uses ANBIMA holidays for 10th business day and treats BTHF11 (Nov/2026) as paid on 2026-11-16', () => {
+        // Nov 2, 2026 is Finados holiday -> 10th ANBIMA business day of Nov/2026 is 2026-11-16
+        const bthfPay = estimateDividendPaymentDate(new Date('2026-11-10T13:00:00.000Z'), 'FII', 'BTHF11');
+        const hglgPay = estimateDividendPaymentDate(new Date('2026-11-03T13:00:00.000Z'), 'FII', 'HGLG11');
+        const mxrfPay = estimateDividendPaymentDate(new Date('2026-11-03T13:00:00.000Z'), 'FII', 'MXRF11');
+        const hgbsPay = estimateDividendPaymentDate(new Date('2026-11-03T13:00:00.000Z'), 'FII', 'HGBS11');
+
+        expect(bthfPay.toISOString().slice(0, 10)).toBe('2026-11-16');
+        expect(hglgPay.toISOString().slice(0, 10)).toBe('2026-11-16');
+        expect(mxrfPay.toISOString().slice(0, 10)).toBe('2026-11-16');
+        expect(hgbsPay.toISOString().slice(0, 10)).toBe('2026-11-16');
     });
 });
 

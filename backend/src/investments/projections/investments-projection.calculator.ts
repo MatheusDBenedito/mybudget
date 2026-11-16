@@ -3,7 +3,7 @@
 // 2. Projected monthly FII dividends based on per-share historical average and current share quantity
 // 3. Projected monthly net yield from Fixed Income (CDB/Renda Fixa) after regressive IR tax
 
-import { countBusinessDays } from '../business-days.util';
+import { countBusinessDays, isAnbimaBusinessDayUtc } from '../business-days.util';
 
 export type ProjectionInvestmentInput = {
     id: string;
@@ -139,8 +139,7 @@ function nthBusinessDayOfMonth(year: number, month0: number, n: number): Date {
     const d = new Date(Date.UTC(year, month0, 1, 13, 0, 0));
     let count = 0;
     while (count < n) {
-        const dow = d.getUTCDay();
-        if (dow !== 0 && dow !== 6) {
+        if (isAnbimaBusinessDayUtc(d)) {
             count++;
             if (count === n) break;
         }
@@ -154,8 +153,7 @@ function addBusinessDays(start: Date, businessDays: number): Date {
     let added = 0;
     while (added < businessDays) {
         d.setUTCDate(d.getUTCDate() + 1);
-        const dow = d.getUTCDay();
-        if (dow !== 0 && dow !== 6) {
+        if (isAnbimaBusinessDayUtc(d)) {
             added++;
         }
     }
@@ -170,7 +168,7 @@ export function estimateDividendPaymentDate(exDate: Date, type: string, tickerCo
 
     if (type === 'FII') {
         if (day >= 27) return nthBusinessDayOfMonth(year, month0 + 1, 10);
-        if (day <= 6) return nthBusinessDayOfMonth(year, month0, 10);
+        if (day <= 6 || (ticker === 'BTHF11' && day <= 13)) return nthBusinessDayOfMonth(year, month0, 10);
         if (day <= 13) return addBusinessDays(exDate, 5);
         const d25 = new Date(Date.UTC(year, month0, 25, 13, 0, 0));
         if (d25.getUTCDay() === 6) d25.setUTCDate(27);

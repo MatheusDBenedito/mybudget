@@ -134,12 +134,66 @@ export function fullMonthLabel(year: number, month: number): string {
     return `${FULL_MONTHS[month - 1]} de ${year}`;
 }
 
+const anbimaHolidayCache = new Map<number, Set<string>>();
+
+function getAnbimaHolidaysUtc(year: number): Set<string> {
+    const cached = anbimaHolidayCache.get(year);
+    if (cached) return cached;
+
+    const holidays = new Set<string>([
+        `${year}-01-01`,
+        `${year}-04-21`,
+        `${year}-05-01`,
+        `${year}-09-07`,
+        `${year}-10-12`,
+        `${year}-11-02`,
+        `${year}-11-15`,
+        `${year}-11-20`,
+        `${year}-12-25`,
+    ]);
+
+    const a = year % 19;
+    const b = Math.floor(year / 100);
+    const c = year % 100;
+    const d = Math.floor(b / 4);
+    const e = b % 4;
+    const f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4);
+    const k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31);
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+    const easterUtc = Date.UTC(year, month - 1, day);
+
+    for (const offset of [-48, -47, -2, 60]) {
+        const dt = new Date(easterUtc + offset * 86_400_000);
+        const y = dt.getUTCFullYear();
+        const mo = String(dt.getUTCMonth() + 1).padStart(2, "0");
+        const da = String(dt.getUTCDate()).padStart(2, "0");
+        holidays.add(`${y}-${mo}-${da}`);
+    }
+
+    anbimaHolidayCache.set(year, holidays);
+    return holidays;
+}
+
+function isAnbimaBusinessDayUtc(d: Date): boolean {
+    const dow = d.getUTCDay();
+    if (dow === 0 || dow === 6) return false;
+    const y = d.getUTCFullYear();
+    const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const da = String(d.getUTCDate()).padStart(2, "0");
+    return !getAnbimaHolidaysUtc(y).has(`${y}-${mo}-${da}`);
+}
+
 function nthBusinessDayOfMonth(year: number, month0: number, n: number): Date {
     const d = new Date(Date.UTC(year, month0, 1, 13, 0, 0));
     let count = 0;
     while (count < n) {
-        const dow = d.getUTCDay();
-        if (dow !== 0 && dow !== 6) {
+        if (isAnbimaBusinessDayUtc(d)) {
             count++;
             if (count === n) break;
         }
@@ -153,8 +207,7 @@ function addBusinessDays(start: Date, businessDays: number): Date {
     let added = 0;
     while (added < businessDays) {
         d.setUTCDate(d.getUTCDate() + 1);
-        const dow = d.getUTCDay();
-        if (dow !== 0 && dow !== 6) {
+        if (isAnbimaBusinessDayUtc(d)) {
             added++;
         }
     }
@@ -176,11 +229,11 @@ export function estimateDividendPaymentDate(exDate: Date, type: string, tickerCo
         if (day >= 27) {
             return nthBusinessDayOfMonth(year, month0 + 1, 10);
         }
-        // Start-of-month Ex-Date (1..6, e.g. MXRF11, HGLG11, HGBS11) -> 10th business day of the same month
-        if (day <= 6) {
+        // Start-of-month Ex-Date (1..6, e.g. MXRF11, HGLG11, HGBS11) or BTHF11 (6th business day) -> 10th business day of the same month
+        if (day <= 6 || (ticker === "BTHF11" && day <= 13)) {
             return nthBusinessDayOfMonth(year, month0, 10);
         }
-        // Mid-month Ex-Date (7..13, e.g. BTHF11) -> +5 business days (around 17th-18th)
+        // Mid-month Ex-Date (7..13) -> +5 business days (around 17th-18th)
         if (day <= 13) {
             return addBusinessDays(exDate, 5);
         }

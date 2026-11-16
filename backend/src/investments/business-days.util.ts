@@ -37,7 +37,7 @@ function addDays(date: Date, days: number): Date {
  * Returns a Set of ANBIMA holiday date strings ("YYYY-MM-DD") for a given year.
  * Includes fixed national holidays and floating holidays derived from Easter.
  */
-function getAnbimaHolidays(year: number): Set<string> {
+export function getAnbimaHolidays(year: number): Set<string> {
     const holidays = new Set<string>();
 
     const fmt = (d: Date): string => {
@@ -107,4 +107,20 @@ export function countBusinessDays(startDate: Date, endDate: Date): number {
     }
 
     return count;
+}
+
+const holidayCache = new Map<number, Set<string>>();
+
+export function isAnbimaBusinessDayUtc(d: Date): boolean {
+    const dow = d.getUTCDay();
+    if (dow === 0 || dow === 6) return false;
+    const y = d.getUTCFullYear();
+    let holidays = holidayCache.get(y);
+    if (!holidays) {
+        holidays = getAnbimaHolidays(y);
+        holidayCache.set(y, holidays);
+    }
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return !holidays.has(`${y}-${m}-${day}`);
 }
