@@ -323,6 +323,8 @@ Qualquer plano executado neste projeto deve preservar estas regras:
   - `backend/src/credit-cards/helpers/invoice-calculator.helper.ts` (`calculateInvoiceDate`) e `frontend/src/lib/credit-cards.ts` (`openInvoiceMonth`): substituído o avanço único (`if`) por laço iterativo até encontrar a primeira fatura cujo fechamento (`dueDate - invoiceClosingOffset`) ainda não foi atingido. Corrige automaticamente compras de fim de mês em cartões como `dueDay = 5, offset = 7` (ex.: compra em `30/08` após fechamento de `29/08` da fatura de `05/09` passa a cair direto na fatura de `05/10`).
 - **Truncamento por Título em Renda Fixa (`investments`):**
   - `backend/src/investments/investments.service.ts`: `grossValue` de títulos de `FIXED_INCOME` é truncado em 2 casas decimais por lote (`Math.trunc((grossValue + 1e-9) * 100) / 100`) antes da soma da carteira, alinhando o total bruto centavo a centavo com o padrão bancário/B3.
+- **Reajuste em Grupo de Parcelas de Cartão na Edição (`card-transactions`):**
+  - `backend/src/card-transactions/helpers/installment-group-update.helper.ts` (`extractInstallmentNumber`, `planInstallmentGroupSchedule`) e `card-transactions.service.ts` (`update`): ao editar a data da compra, cartão, portador ou categoria de uma parcela pertencente a `installmentGroupId`, o sistema recalcula `date` e `invoiceDate` de **todas as parcelas do grupo** (anteriores e posteriores) mantendo o deslocamento mensal relativo ao sufixo `(k/N)`.
 
 
 

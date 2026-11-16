@@ -4,6 +4,7 @@ import { CreateCardTransactionDto } from './dto/create-card-transaction.dto';
 import { UpdateCardTransactionDto } from './dto/update-card-transaction.dto';
 import { calculateInvoiceDate } from '../credit-cards/helpers/invoice-calculator.helper';
 import { distributeInstallments } from '../common/helpers/penny-pinching.helper';
+import { planInstallmentGroupSchedule } from './helpers/installment-group-update.helper';
 import { addMonths } from 'date-fns';
 import { randomUUID } from 'crypto';
 
@@ -347,9 +348,13 @@ export class CardTransactionsService {
 
         const targetCardId = updateDto.creditCardId ?? transaction.creditCardId;
         const cardChanged = !!updateDto.creditCardId && updateDto.creditCardId !== transaction.creditCardId;
+        let targetCard = transaction.creditCard;
         if (cardChanged) {
-            const nextCard = await this.prisma.creditCard.findFirst({ where: { id: targetCardId, workspaceId }, select: { id: true } });
+            const nextCard = await this.prisma.creditCard.findFirst({
+                where: { id: targetCardId, workspaceId },
+            });
             if (!nextCard) throw new NotFoundException('Cartão de destino não encontrado neste workspace.');
+            targetCard = nextCard;
         }
 
         let cardHolderId = transaction.cardHolderId;
@@ -361,11 +366,11 @@ export class CardTransactionsService {
 
         let invoiceDate = transaction.invoiceDate;
 
-        if (updateDto.date) {
+        if (updateDto.date || cardChanged) {
             invoiceDate = calculateInvoiceDate(
-                new Date(updateDto.date),
-                transaction.creditCard.invoiceClosingOffset,
-                transaction.creditCard.dueDay,
+                updateDto.date ? new Date(updateDto.date) : transaction.date,
+                targetCard.invoiceClosingOffset,
+                targetCard.dueDay,
             );
         }
 
@@ -458,6 +463,51 @@ export class CardTransactionsService {
                     cardHolderId,
                 }
             });
+        }
+
+        // Edição de lançamento parcelado: propaga ajuste de data/cartão/portador/categoria
+        // para todas as parcelas anteriores e posteriores do grupo.
+        if (
+            !transaction.isFixed &&
+            transaction.installmentGroupId &&
+            (updateDto.date || cardChanged || updateDto.cardHolderId || updateDto.categoryId !== undefined)
+        ) {
+            const siblings = await this.prisma.cardTransaction.findMany({
+                where: { workspaceId, installmentGroupId: transaction.installmentGroupId },
+                select: { id: true, description: true, date: true, invoiceDate: true },
+                orderBy: { invoiceDate: 'asc' },
+            });
+
+            const schedule = planInstallmentGroupSchedule({
+                siblings,
+                newPurchaseDate: updateDto.date ? new Date(updateDto.date) : undefined,
+                invoiceClosingOffset: targetCard.invoiceClosingOffset,
+                dueDay: targetCard.dueDay,
+            });
+
+            const updated = await this.prisma.$transaction(
+                schedule.map((item) =>
+                    this.prisma.cardTransaction.update({
+                        where: { id: item.id },
+                        data: {
+                            date: updateDto.date ? item.date : undefined,
+                            invoiceDate: updateDto.date || cardChanged ? item.invoiceDate : undefined,
+                            creditCardId: updateDto.creditCardId,
+                            cardHolderId,
+                            categoryId: updateDto.categoryId,
+                            ...(item.id === realId
+                                ? {
+                                      description: updateDto.description,
+                                      amount: updateDto.amount,
+                                      isFixed: updateDto.isFixed,
+                                  }
+                                : {}),
+                        },
+                    }),
+                ),
+            );
+
+            return updated.find((u) => u.id === realId) ?? updated[0];
         }
 
         // Edição normal (global) ou de contas que não são fixas
