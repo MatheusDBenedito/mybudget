@@ -329,6 +329,8 @@ Qualquer plano executado neste projeto deve preservar estas regras:
   - `backend/src/cash-flow/cash-flow.service.ts` e `frontend/src/app/fluxo-de-caixa/page.tsx`: o card **Contas e Investimentos** e o `openingBalance` passaram a considerar o **saldo líquido (`balance`)** das contas bancárias (incluindo contas remuneradas/cofrinhos), em vez do `grossBalance` com IR somado.
 - **Reconciliação Automática de Saldo via Open Finance (`open-finance`):**
   - `backend/src/open-finance/providers/pluggy.provider.ts`, `helpers/open-finance-sync.helper.ts` (`computeExternalBalanceReconciliation`) e `open-finance.service.ts` (`syncConnection` / `syncBankMap`): ao sincronizar contas bancárias (`BANK`), compara o `balance` real reportado pela Pluggy com o saldo local e aplica automaticamente qualquer diferença residual (ex.: centavos de rendimento diário em contas remuneradas), registrando `PotMovement` (`kind: 'adjustment'`) no maior cofrinho quando `freeBalance == 0` ou `BalanceAdjustment` no saldo livre.
+- **Exibição de Dois Totais para Assinaturas com Data Futura na Fatura (`cartoes`):**
+  - `frontend/src/lib/credit-cards.ts` (`isSubscriptionCategory`, `isPendingSubscriptionItem`, `summarizeInvoiceSubscriptions`) e `frontend/src/app/cartoes/page.tsx`: quando a fatura possui lançamentos na categoria de assinatura (`Assinaturas` / `Assinatura`) cuja data de cobrança é posterior ao dia atual, a tela de **Cartões** exibe ambos os valores no card da fatura e no rodapé da lista — **No app do cartão (até hoje)** (excluindo assinaturas ainda não cobradas) e **Total previsto** (incluindo todas as assinaturas) — além de sinalizar cada item pendente com a tag `A lançar (dd/mmm)`.
 
 
 

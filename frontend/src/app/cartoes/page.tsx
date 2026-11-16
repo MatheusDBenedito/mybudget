@@ -20,8 +20,10 @@ import {
     holderLabel,
     holderTotals,
     holdersOf,
+    isPendingSubscriptionItem,
     openInvoiceMonth,
     primaryCard,
+    summarizeInvoiceSubscriptions,
     type InvoiceGroupKey,
 } from "@/lib/credit-cards";
 import { InvoiceGroupSection } from "@/components/cards/InvoiceGroupSection";
@@ -122,6 +124,30 @@ function InvoiceTypeGroups({ transactions, categories, onEditSuccess, openGroups
     );
 }
 
+function InvoiceFooterTotals({ label, summary }: { label: string; summary: ReturnType<typeof summarizeInvoiceSubscriptions> }) {
+    if (!summary.hasPendingSubscriptions) {
+        return (
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-4 py-3">
+                <span className="text-sm font-medium">{label}</span>
+                <span className="text-lg font-medium tabular-nums"><Money value={summary.totalWithSubscriptions} /></span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-1.5 rounded-lg bg-muted/60 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">No app do cartão (até hoje)</span>
+                <span className="text-lg font-medium tabular-nums"><Money value={summary.totalInCardApp} /></span>
+            </div>
+            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span>{label} (com assinaturas a vencer)</span>
+                <span className="font-medium tabular-nums"><Money value={summary.totalWithSubscriptions} /></span>
+            </div>
+        </div>
+    );
+}
+
 /** Invoice split into Fixos / Parcelados / À vista or separated per holder (with Fixos / Parcelados / À vista inside each holder). */
 function InvoiceList({ transactions, categories, onEditSuccess, openGroups, onToggleGroup, showHolder = false, grandTotal, groupBy = "type", holders = [], openHolders = {}, onToggleHolder }: {
     transactions: ApiInvoiceItem[];
@@ -138,12 +164,14 @@ function InvoiceList({ transactions, categories, onEditSuccess, openGroups, onTo
     openHolders?: Record<string, boolean>;
     onToggleHolder?: (holderId: string) => void;
 }) {
+    const subSummary = summarizeInvoiceSubscriptions(transactions, categories);
+
     if (transactions.length === 0 && groupBy !== "holder") {
         return <InvoiceItems transactions={[]} categories={categories} onEditSuccess={onEditSuccess} />;
     }
 
     if (groupBy === "holder" && holders.length > 1) {
-        const { sections, total } = groupInvoiceByHolder(transactions, holders);
+        const { sections } = groupInvoiceByHolder(transactions, holders);
 
         return (
             <div className="space-y-3 p-4">
@@ -180,10 +208,7 @@ function InvoiceList({ transactions, categories, onEditSuccess, openGroups, onTo
                     );
                 })}
 
-                <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-4 py-3">
-                    <span className="text-sm font-medium">Total da fatura</span>
-                    <span className="text-lg font-medium tabular-nums"><Money value={total} /></span>
-                </div>
+                <InvoiceFooterTotals label="Total da fatura" summary={subSummary} />
             </div>
         );
     }
@@ -202,10 +227,7 @@ function InvoiceList({ transactions, categories, onEditSuccess, openGroups, onTo
                 showHolder={showHolder}
             />
 
-            <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-4 py-3">
-                <span className="text-sm font-medium">{isFiltered ? "Total do portador" : "Total da fatura"}</span>
-                <span className="text-lg font-medium tabular-nums"><Money value={total} /></span>
-            </div>
+            <InvoiceFooterTotals label={isFiltered ? "Total do portador" : "Total da fatura"} summary={subSummary} />
 
             {isFiltered && (
                 <div className="flex items-center justify-between gap-3 px-4 text-xs text-muted-foreground">
@@ -218,6 +240,7 @@ function InvoiceList({ transactions, categories, onEditSuccess, openGroups, onTo
 }
 
 function InvoiceItems({ transactions, categories, onEditSuccess, showHolder = false }: { transactions: ApiInvoiceItem[], categories: ApiCategory[], onEditSuccess: () => void, showHolder?: boolean }) {
+    const categoriesById = new Map(categories.map(c => [c.id, c.name]));
     if (transactions.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center p-10 text-center">
@@ -231,6 +254,7 @@ function InvoiceItems({ transactions, categories, onEditSuccess, showHolder = fa
         <ul className="divide-y">
             {transactions.map((tx) => {
                 const category = categories.find(c => c.id === tx.categoryId);
+                const isPendingSub = isPendingSubscriptionItem(tx, categoriesById);
                 const IconComponent = category?.icon && ICONS_MAP[category.icon]
                     ? ICONS_MAP[category.icon]
                     : null;
@@ -268,7 +292,14 @@ function InvoiceItems({ transactions, categories, onEditSuccess, showHolder = fa
                                         </Badge>
                                     )}
                                 </p>
-                                {category && <p className="text-xs text-muted-foreground">{category.name}</p>}
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {category && <p className="text-xs text-muted-foreground">{category.name}</p>}
+                                    {isPendingSub && (
+                                        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                                            A lançar ({formatDay(tx.date)})
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         </div>
                         <div className="flex shrink-0 items-center justify-end gap-1">
@@ -508,6 +539,7 @@ export default function CartoesPage() {
     const cardHolders = holdersOf(card.holders);
     const invoiceItems = invoices[activeTab] || [];
     const holderSplits = holderTotals(invoiceItems, card.holders);
+    const invoiceSubscriptionSummary = summarizeInvoiceSubscriptions(invoiceItems, categories);
 
     return (
         <div className="space-y-6">
@@ -602,7 +634,27 @@ export default function CartoesPage() {
                 </div>
 
                 <StatCard title={`Fatura ${activeTab}`} icon={Receipt} info="Soma dos lançamentos deste cartão no mês selecionado.">
-                    <div className="text-xl font-medium tabular-nums"><Money value={currentInvoiceTotal} /></div>
+                    {invoiceSubscriptionSummary.hasPendingSubscriptions ? (
+                        <div className="space-y-1">
+                            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                                <div>
+                                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">No app do cartão</p>
+                                    <div className="text-xl font-medium tabular-nums"><Money value={invoiceSubscriptionSummary.totalInCardApp} /></div>
+                                </div>
+                                <div>
+                                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Total previsto</p>
+                                    <div className="text-base font-medium tabular-nums text-muted-foreground"><Money value={invoiceSubscriptionSummary.totalWithSubscriptions} /></div>
+                                </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                + <Money value={invoiceSubscriptionSummary.pendingSubscriptionsTotal} /> de{" "}
+                                {invoiceSubscriptionSummary.pendingSubscriptionsCount}{" "}
+                                {invoiceSubscriptionSummary.pendingSubscriptionsCount === 1 ? "assinatura a vencer" : "assinaturas a vencer"}
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="text-xl font-medium tabular-nums"><Money value={currentInvoiceTotal} /></div>
+                    )}
                     {cardHolders.length > 1 && (
                         <ul className="mt-2 space-y-1 border-t pt-2 text-xs text-muted-foreground">
                             {holderSplits.filter(s => s.id !== "unknown" || s.count > 0).map(split => (

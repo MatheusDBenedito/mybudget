@@ -10,6 +10,9 @@ import {
     holderLabel,
     holderTotals,
     filterByHolder,
+    isSubscriptionCategory,
+    isPendingSubscriptionItem,
+    summarizeInvoiceSubscriptions,
 } from "./credit-cards.ts";
 
 describe("groupInvoice", () => {
@@ -153,6 +156,57 @@ describe("holderTotals", () => {
                 ["wife", false, 1, 30],
                 ["empty", false, 0, 0],
             ],
+        );
+    });
+});
+
+describe("subscriptions dual total", () => {
+    const categories = [
+        { id: "cat-sub", name: "Assinaturas" },
+        { id: "cat-sub-singular", name: "Assinatura" },
+        { id: "cat-food", name: "Mercado" },
+    ];
+    const today = new Date(2026, 10, 16); // 2026-11-16
+
+    test("identifies subscription categories case-insensitively", () => {
+        assert.equal(isSubscriptionCategory("Assinaturas"), true);
+        assert.equal(isSubscriptionCategory("assinatura"), true);
+        assert.equal(isSubscriptionCategory("Mercado"), false);
+        assert.equal(isSubscriptionCategory(null), false);
+    });
+
+    test("excludes future-dated subscriptions from card-app total while keeping past/today ones", () => {
+        const items = [
+            { amount: 100, date: "2026-11-10", categoryId: "cat-food" },          // already charged
+            { amount: 40.9, date: "2026-11-10", categoryId: "cat-sub" },          // past subscription -> already in app
+            { amount: 53.9, date: "2026-11-16", categoryId: "cat-sub" },          // today subscription -> already in app
+            { amount: 23.99, date: "2026-11-20", categoryId: "cat-sub" },         // future subscription -> not in app yet
+            { amount: 13.9, date: "2026-11-25", categoryId: "cat-sub-singular" }, // future subscription -> not in app yet
+        ];
+
+        const summary = summarizeInvoiceSubscriptions(items, categories, today);
+        assert.equal(summary.totalWithSubscriptions, 232.69);
+        assert.equal(summary.pendingSubscriptionsTotal, 37.89);
+        assert.equal(summary.totalInCardApp, 194.8);
+        assert.equal(summary.pendingSubscriptionsCount, 2);
+        assert.equal(summary.hasPendingSubscriptions, true);
+    });
+
+    test("returns hasPendingSubscriptions = false when all subscriptions are on or before today", () => {
+        const items = [
+            { amount: 100, date: "2026-11-10", categoryId: "cat-food" },
+            { amount: 40.9, date: "2026-11-10", categoryId: "cat-sub" },
+            { amount: 50, date: "2026-11-22", categoryId: "cat-food" }, // non-subscription future item
+        ];
+
+        const summary = summarizeInvoiceSubscriptions(items, categories, today);
+        assert.equal(summary.totalWithSubscriptions, 190.9);
+        assert.equal(summary.totalInCardApp, 190.9);
+        assert.equal(summary.pendingSubscriptionsTotal, 0);
+        assert.equal(summary.hasPendingSubscriptions, false);
+        assert.equal(
+            isPendingSubscriptionItem({ date: "2026-11-22", categoryId: "cat-food" }, new Map([["cat-food", "Mercado"]]), today),
+            false,
         );
     });
 });

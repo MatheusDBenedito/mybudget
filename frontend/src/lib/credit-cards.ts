@@ -190,3 +190,97 @@ export function groupInvoiceByHolder<T extends InvoiceItemWithHolder>(
     const total = round2(sections.reduce((acc, s) => acc + s.total, 0));
     return { sections, total };
 }
+
+export type InvoiceCategoryLike = { id: string; name: string };
+export type InvoiceSubscriptionItemLike = {
+    amount: number;
+    date: string;
+    categoryId?: string | null;
+};
+
+export type InvoiceSubscriptionSummary = {
+    /** Full invoice total including all subscriptions (projected total). */
+    totalWithSubscriptions: number;
+    /** Total already reflected in the card app (excludes subscriptions with date > today). */
+    totalInCardApp: number;
+    /** Sum of subscription items whose billing date is still after today. */
+    pendingSubscriptionsTotal: number;
+    /** Number of subscription items whose billing date is still after today. */
+    pendingSubscriptionsCount: number;
+    hasPendingSubscriptions: boolean;
+};
+
+const localDateKey = (d: Date): string => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+};
+
+const itemDateKey = (raw: string): string | null => {
+    const trimmed = raw.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const parsed = new Date(trimmed);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return localDateKey(parsed);
+};
+
+/** Returns true when a category name represents subscriptions (e.g. "Assinatura", "Assinaturas"). */
+export function isSubscriptionCategory(categoryName?: string | null): boolean {
+    if (!categoryName) return false;
+    const normalized = categoryName
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLowerCase();
+    return normalized.startsWith("assinatura");
+}
+
+/**
+ * Returns true when an invoice item belongs to a subscription category and its billing date
+ * is strictly after `today` (so the system already projects it, but it has not yet appeared in the card app).
+ */
+export function isPendingSubscriptionItem(
+    item: Pick<InvoiceSubscriptionItemLike, "date" | "categoryId">,
+    categoriesById: ReadonlyMap<string, string>,
+    today: Date = new Date(),
+): boolean {
+    if (!item.categoryId) return false;
+    if (!isSubscriptionCategory(categoriesById.get(item.categoryId))) return false;
+    const key = itemDateKey(item.date);
+    if (!key) return false;
+    return key > localDateKey(today);
+}
+
+/**
+ * Computes both the projected invoice total (with all subscriptions) and the current card-app total
+ * (excluding subscriptions whose date has not yet arrived).
+ */
+export function summarizeInvoiceSubscriptions<T extends InvoiceSubscriptionItemLike>(
+    items: readonly T[],
+    categories: readonly InvoiceCategoryLike[],
+    today: Date = new Date(),
+): InvoiceSubscriptionSummary {
+    const categoriesById = new Map(categories.map(c => [c.id, c.name]));
+    let totalWithSubscriptions = 0;
+    let pendingSubscriptionsTotal = 0;
+    let pendingSubscriptionsCount = 0;
+
+    for (const item of items) {
+        totalWithSubscriptions += item.amount;
+        if (isPendingSubscriptionItem(item, categoriesById, today)) {
+            pendingSubscriptionsTotal += item.amount;
+            pendingSubscriptionsCount += 1;
+        }
+    }
+
+    const total = round2(totalWithSubscriptions);
+    const pending = round2(pendingSubscriptionsTotal);
+    return {
+        totalWithSubscriptions: total,
+        totalInCardApp: round2(total - pending),
+        pendingSubscriptionsTotal: pending,
+        pendingSubscriptionsCount,
+        hasPendingSubscriptions: pendingSubscriptionsCount > 0,
+    };
+}
