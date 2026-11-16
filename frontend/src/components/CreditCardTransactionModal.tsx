@@ -401,21 +401,15 @@ export function CreditCardTransactionModal({ children, initialData, onSuccess }:
                             <FormField
                                 control={form.control}
                                 name="cardHolderId"
-                                render={({ field }) => {
-                                    const selected = selectedHolders.find(holder => holder.id === field.value);
-                                    return (
-                                        <FormItem>
-                                            <FormLabel>Portador</FormLabel>
-                                            <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                                                <FormControl>
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Selecione o portador">
-                                                            {selected
-                                                                ? `${selected.name}${selected.last4 ? ` ••${selected.last4}` : ""}${selected.isMain ? " (titular)" : ""}`
-                                                                : undefined}
-                                                        </SelectValue>
-                                                    </SelectTrigger>
-                                                </FormControl>
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Portador</FormLabel>
+                                        <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Selecione o portador" />
+                                                </SelectTrigger>
+                                            </FormControl>
                                                 <SelectContent>
                                                     {selectedHolders.map(holder => (
                                                         <SelectItem key={holder.id} value={holder.id}>
@@ -426,8 +420,7 @@ export function CreditCardTransactionModal({ children, initialData, onSuccess }:
                                             </Select>
                                             <FormMessage />
                                         </FormItem>
-                                    );
-                                }}
+                                )}
                             />
                         )}
 
