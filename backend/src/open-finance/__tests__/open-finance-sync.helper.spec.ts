@@ -1,4 +1,5 @@
 import {
+    computeExternalBalanceReconciliation,
     mapExternalCardTransactionsToLocal,
     mapExternalTransactionsToLocal,
 } from '../helpers/open-finance-sync.helper';
@@ -185,5 +186,38 @@ describe('open-finance-sync.helper', () => {
             externalId: 'cc-refund',
             amount: -40,
         });
+    });
+
+    it('reconciles residual cent differences onto the largest pot when freeBalance is zero', () => {
+        const plan = computeExternalBalanceReconciliation({
+            externalBalance: 8793.23,
+            localBalance: 8793.16,
+            pots: [
+                { id: 'pot-bebe', balance: 107.07 },
+                { id: 'pot-reserva', balance: 5792.04 },
+                { id: 'pot-fin', balance: 2894.05 },
+            ],
+        });
+
+        expect(plan).toEqual({
+            delta: 0.07,
+            targetPotId: 'pot-reserva',
+        });
+
+        // Returns null when already synced or externalBalance is missing
+        expect(
+            computeExternalBalanceReconciliation({
+                externalBalance: 8793.16,
+                localBalance: 8793.16,
+                pots: [{ id: 'pot-reserva', balance: 8793.16 }],
+            }),
+        ).toBeNull();
+        expect(
+            computeExternalBalanceReconciliation({
+                externalBalance: null,
+                localBalance: 100,
+                pots: [],
+            }),
+        ).toBeNull();
     });
 });

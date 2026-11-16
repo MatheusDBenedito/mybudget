@@ -174,6 +174,45 @@ export function mapExternalTransactionsToLocal(params: {
     };
 }
 
+export interface BalanceReconciliationPlan {
+    delta: number;
+    targetPotId: string | null;
+}
+
+/**
+ * Reconciles the local account balance against the live balance reported by Open Finance
+ * (e.g. Pluggy). Useful for yielding accounts (like Mercado Pago) whose daily CDI accruals
+ * or rounding differ by a few cents and are not emitted as discrete bank transactions.
+ */
+export function computeExternalBalanceReconciliation(params: {
+    externalBalance: number | null | undefined;
+    localBalance: number;
+    pots: Array<{ id: string; balance: number }>;
+}): BalanceReconciliationPlan | null {
+    if (params.externalBalance === null || params.externalBalance === undefined || !Number.isFinite(params.externalBalance)) {
+        return null;
+    }
+
+    const delta = round2(params.externalBalance - params.localBalance);
+    if (Math.abs(delta) < 0.01) {
+        return null;
+    }
+
+    const potsTotal = params.pots.reduce((acc, pot) => acc + pot.balance, 0);
+    const freeBalance = round2(params.localBalance - potsTotal);
+
+    // If all money sits in pots (freeBalance ~ 0), apply the cent delta to the largest pot
+    // so freeBalance stays 0 and pot totals remain consistent.
+    if (params.pots.length > 0 && Math.abs(freeBalance) < 0.01) {
+        const largestPot = [...params.pots].sort((a, b) => b.balance - a.balance)[0];
+        if (largestPot && round2(largestPot.balance + delta) >= 0) {
+            return { delta, targetPotId: largestPot.id };
+        }
+    }
+
+    return { delta, targetPotId: null };
+}
+
 export function mapExternalCardTransactionsToLocal(params: {
     transactions: ExternalTransaction[];
     existingExternalIds: Set<string>;

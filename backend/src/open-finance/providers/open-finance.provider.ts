@@ -12,6 +12,7 @@ export interface ExternalAccountInfo {
     name: string;
     type: 'BANK' | 'CREDIT';
     subtype: string | null;
+    balance?: number | null;
 }
 
 export interface OpenFinanceProvider {

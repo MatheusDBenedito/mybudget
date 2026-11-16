@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PluggyProvider } from './providers/pluggy.provider';
 import { RegisterConnectionDto, UpdateAccountMapDto } from './dto/open-finance.dto';
 import {
+    computeExternalBalanceReconciliation,
     mapExternalCardTransactionsToLocal,
     mapExternalTransactionsToLocal,
 } from './helpers/open-finance-sync.helper';
@@ -171,7 +172,13 @@ export class OpenFinanceService {
             throw new NotFoundException('Conexão Open Finance não encontrada.');
         }
 
-        const itemInfo = await this.pluggy.fetchItem(connection.itemId);
+        const [itemInfo, externalAccounts] = await Promise.all([
+            this.pluggy.fetchItem(connection.itemId),
+            this.pluggy.fetchAccounts(connection.itemId),
+        ]);
+        const externalBalanceById = new Map<string, number | null>(
+            externalAccounts.map((acc) => [acc.id, acc.balance ?? null]),
+        );
         let importedCount = 0;
         let skippedCount = 0;
 
@@ -181,7 +188,14 @@ export class OpenFinanceService {
             }
 
             if (map.externalType === 'BANK' && map.localAccountId) {
-                const counts = await this.syncBankMap(workspaceId, map.id, map.externalAccountId, map.localAccountId, map.lastSyncedAt);
+                const counts = await this.syncBankMap(
+                    workspaceId,
+                    map.id,
+                    map.externalAccountId,
+                    map.localAccountId,
+                    map.lastSyncedAt,
+                    externalBalanceById.get(map.externalAccountId) ?? null,
+                );
                 importedCount += counts.importedCount;
                 skippedCount += counts.skippedCount;
             } else if (map.externalType === 'CREDIT' && map.localCreditCardId) {
@@ -267,6 +281,7 @@ export class OpenFinanceService {
         externalAccountId: string,
         localAccountId: string,
         lastSyncedAt: Date | null,
+        externalBalance: number | null = null,
     ) {
         const fromDate = this.computeFromDate(lastSyncedAt);
         const externalTxs = await this.pluggy.fetchTransactions(externalAccountId, fromDate);
@@ -342,6 +357,65 @@ export class OpenFinanceService {
             });
         }
 
+        const localAccount = await this.prisma.account.findFirst({
+            where: { id: localAccountId, workspaceId },
+            select: {
+                id: true,
+                name: true,
+                currency: true,
+                balance: true,
+                pots: { select: { id: true, balance: true } },
+            },
+        });
+
+        let reconciledDelta = 0;
+        if (localAccount && localAccount.currency === 'BRL') {
+            const reconciliation = computeExternalBalanceReconciliation({
+                externalBalance,
+                localBalance: localAccount.balance,
+                pots: localAccount.pots,
+            });
+
+            if (reconciliation) {
+                const now = new Date();
+                await this.prisma.$transaction(async (tx) => {
+                    await tx.account.update({
+                        where: { id: localAccountId },
+                        data: { balance: { increment: reconciliation.delta } },
+                    });
+
+                    if (reconciliation.targetPotId) {
+                        await tx.yieldPot.update({
+                            where: { id: reconciliation.targetPotId },
+                            data: { balance: { increment: reconciliation.delta } },
+                        });
+                        await tx.potMovement.create({
+                            data: {
+                                potId: reconciliation.targetPotId,
+                                amount: reconciliation.delta,
+                                kind: 'adjustment',
+                                date: now,
+                            },
+                        });
+                    } else {
+                        await tx.balanceAdjustment.create({
+                            data: {
+                                workspaceId,
+                                accountId: localAccountId,
+                                amount: reconciliation.delta,
+                                date: now,
+                            },
+                        });
+                    }
+                });
+
+                reconciledDelta = reconciliation.delta;
+                this.logger.log(
+                    `Reconciled Open Finance balance for "${localAccount.name}" by R$ ${reconciliation.delta.toFixed(2)}`,
+                );
+            }
+        }
+
         await this.prisma.openFinanceAccountMap.update({
             where: { id: mapId },
             data: { lastSyncedAt: new Date() },
@@ -350,6 +424,7 @@ export class OpenFinanceService {
         return {
             importedCount: plan.toCreate.length,
             skippedCount: plan.skippedCount,
+            reconciledDelta,
         };
     }
 

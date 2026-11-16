@@ -327,6 +327,8 @@ Qualquer plano executado neste projeto deve preservar estas regras:
   - `backend/src/card-transactions/helpers/installment-group-update.helper.ts` (`extractInstallmentNumber`, `planInstallmentGroupSchedule`) e `card-transactions.service.ts` (`update`): ao editar a data da compra, cartão, portador ou categoria de uma parcela pertencente a `installmentGroupId`, o sistema recalcula `date` e `invoiceDate` de **todas as parcelas do grupo** (anteriores e posteriores) mantendo o deslocamento mensal relativo ao sufixo `(k/N)`.
 - **Saldo Líquido das Contas no Fluxo de Caixa (`cash-flow`):**
   - `backend/src/cash-flow/cash-flow.service.ts` e `frontend/src/app/fluxo-de-caixa/page.tsx`: o card **Contas e Investimentos** e o `openingBalance` passaram a considerar o **saldo líquido (`balance`)** das contas bancárias (incluindo contas remuneradas/cofrinhos), em vez do `grossBalance` com IR somado.
+- **Reconciliação Automática de Saldo via Open Finance (`open-finance`):**
+  - `backend/src/open-finance/providers/pluggy.provider.ts`, `helpers/open-finance-sync.helper.ts` (`computeExternalBalanceReconciliation`) e `open-finance.service.ts` (`syncConnection` / `syncBankMap`): ao sincronizar contas bancárias (`BANK`), compara o `balance` real reportado pela Pluggy com o saldo local e aplica automaticamente qualquer diferença residual (ex.: centavos de rendimento diário em contas remuneradas), registrando `PotMovement` (`kind: 'adjustment'`) no maior cofrinho quando `freeBalance == 0` ou `BalanceAdjustment` no saldo livre.
 
 
 

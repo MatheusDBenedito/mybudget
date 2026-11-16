@@ -62,6 +62,7 @@ export class PluggyProvider implements OpenFinanceProvider {
             name: acc.name || acc.marketingName || 'Conta Open Finance',
             type: acc.type === 'CREDIT' ? 'CREDIT' : 'BANK',
             subtype: acc.subtype ?? null,
+            balance: typeof acc.balance === 'number' && Number.isFinite(acc.balance) ? acc.balance : null,
         }));
     }
 
