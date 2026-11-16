@@ -3,38 +3,45 @@ export function calculateInvoiceDate(
     invoiceClosingOffset: number,
     dueDay: number,
 ): Date {
-    // We assume the initial prospective invoice is the same month as the purchase
     let prospectiveInvoiceYear = purchaseDate.getFullYear();
     let prospectiveInvoiceMonth = purchaseDate.getMonth();
 
-    // 1) Find the actual due date for this prospective month.
-    // If dueDay is 31 but the month has only 30 days, JS will spill over to the 1st of next month,
-    // so we cap it to the last valid day of the prospective month.
-    let lastDayOfProspectiveMonth = new Date(prospectiveInvoiceYear, prospectiveInvoiceMonth + 1, 0).getDate();
-    let finalDueDay = dueDay > lastDayOfProspectiveMonth ? lastDayOfProspectiveMonth : dueDay;
+    const normalizedPurchaseDate = new Date(
+        purchaseDate.getFullYear(),
+        purchaseDate.getMonth(),
+        purchaseDate.getDate(),
+    );
 
-    let prospectiveDueDate = new Date(prospectiveInvoiceYear, prospectiveInvoiceMonth, finalDueDay);
+    const buildDueDate = (year: number, month: number) => {
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        const finalDueDay = dueDay > lastDay ? lastDay : dueDay;
+        return new Date(year, month, finalDueDay);
+    };
 
-    // 2) The exact closing date for this prospective invoice is `invoiceClosingOffset` days before the due date.
-    let prospectiveClosingDate = new Date(prospectiveDueDate);
-    prospectiveClosingDate.setDate(prospectiveClosingDate.getDate() - invoiceClosingOffset);
+    // Advance while purchaseDate >= closingDate of the prospective invoice.
+    // Handles cards where dueDay <= invoiceClosingOffset (e.g. dueDay=5, offset=7 ->
+    // Sep 5 invoice closes Aug 29, so a purchase on Aug 30 belongs to Oct 5).
+    for (let guard = 0; guard < 12; guard++) {
+        const prospectiveDueDate = buildDueDate(prospectiveInvoiceYear, prospectiveInvoiceMonth);
+        const prospectiveClosingDate = new Date(prospectiveDueDate);
+        prospectiveClosingDate.setDate(prospectiveClosingDate.getDate() - invoiceClosingOffset);
 
-    // Normalize both dates to midnight to ensure accurate >= comparison by exact date
-    const normalizedPurchaseDate = new Date(purchaseDate.getFullYear(), purchaseDate.getMonth(), purchaseDate.getDate());
-    const normalizedClosingDate = new Date(prospectiveClosingDate.getFullYear(), prospectiveClosingDate.getMonth(), prospectiveClosingDate.getDate());
+        const normalizedClosingDate = new Date(
+            prospectiveClosingDate.getFullYear(),
+            prospectiveClosingDate.getMonth(),
+            prospectiveClosingDate.getDate(),
+        );
 
-    // 3) Rule: if the purchase happens ON or AFTER the closing date, it belongs to the next month's invoice.
-    if (normalizedPurchaseDate.getTime() >= normalizedClosingDate.getTime()) {
+        if (normalizedPurchaseDate.getTime() < normalizedClosingDate.getTime()) {
+            return prospectiveDueDate;
+        }
+
         prospectiveInvoiceMonth += 1;
         if (prospectiveInvoiceMonth > 11) {
             prospectiveInvoiceMonth = 0;
             prospectiveInvoiceYear += 1;
         }
-
-        // Must recalculate the due date for this new final invoice month
-        lastDayOfProspectiveMonth = new Date(prospectiveInvoiceYear, prospectiveInvoiceMonth + 1, 0).getDate();
-        finalDueDay = dueDay > lastDayOfProspectiveMonth ? lastDayOfProspectiveMonth : dueDay;
     }
 
-    return new Date(prospectiveInvoiceYear, prospectiveInvoiceMonth, finalDueDay);
+    return buildDueDate(prospectiveInvoiceYear, prospectiveInvoiceMonth);
 }

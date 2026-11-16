@@ -2,9 +2,9 @@ import { calculateInvoiceDate } from '../invoice-calculator.helper';
 
 describe('Invoice Calculator Helper', () => {
     it('should charge in the current month if purchase is before closing day', () => {
-        // Compra dia 10 de Junho. Fecha dia 15. Vence dia 25.
+        // Compra dia 10 de Junho. Vence dia 25, fecha 10 dias antes (dia 15).
         const purchaseDate = new Date(2026, 5, 10); // Meses no JS são 0-indexed (5 = Junho)
-        const result = calculateInvoiceDate(purchaseDate, 15, 25);
+        const result = calculateInvoiceDate(purchaseDate, 10, 25);
 
         expect(result.getFullYear()).toBe(2026);
         expect(result.getMonth()).toBe(5); // Junho
@@ -51,5 +51,21 @@ describe('Invoice Calculator Helper', () => {
         expect(result.getFullYear()).toBe(2024);
         expect(result.getMonth()).toBe(1);
         expect(result.getDate()).toBe(29);
+    });
+
+    it('should skip past the next month invoice when dueDay <= invoiceClosingOffset and purchase is on/after next month closing date', () => {
+        // Cartão vence dia 5, fecha 7 dias antes:
+        // - Fatura de Set/2026 (vence 05/09) fecha em 29/08.
+        // - Compra em 28/08 (< 29/08) -> Set/2026 (05/09)
+        const beforeClosing = calculateInvoiceDate(new Date(2026, 7, 28), 7, 5);
+        expect(beforeClosing.getFullYear()).toBe(2026);
+        expect(beforeClosing.getMonth()).toBe(8); // Setembro
+        expect(beforeClosing.getDate()).toBe(5);
+
+        // - Compra em 30/08 (>= 29/08) -> Out/2026 (05/10), nunca Set/2026!
+        const afterClosing = calculateInvoiceDate(new Date(2026, 7, 30), 7, 5);
+        expect(afterClosing.getFullYear()).toBe(2026);
+        expect(afterClosing.getMonth()).toBe(9); // Outubro
+        expect(afterClosing.getDate()).toBe(5);
     });
 });

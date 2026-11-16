@@ -36,14 +36,26 @@ export function groupInvoice<T extends InvoiceItemLike>(items: T[]): { groups: I
  */
 export function openInvoiceMonth(today: Date, closingOffset: number, dueDay: number): { month: number; year: number } {
     const day = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const lastDay = new Date(day.getFullYear(), day.getMonth() + 1, 0).getDate();
-    const closing = new Date(day.getFullYear(), day.getMonth(), Math.min(dueDay, lastDay));
-    closing.setDate(closing.getDate() - closingOffset);
+    let year = day.getFullYear();
+    let month0 = day.getMonth();
 
-    const due = day >= closing
-        ? new Date(day.getFullYear(), day.getMonth() + 1, 1)
-        : new Date(day.getFullYear(), day.getMonth(), 1);
-    return { month: due.getMonth() + 1, year: due.getFullYear() };
+    for (let guard = 0; guard < 12; guard++) {
+        const lastDay = new Date(year, month0 + 1, 0).getDate();
+        const closing = new Date(year, month0, Math.min(dueDay, lastDay));
+        closing.setDate(closing.getDate() - closingOffset);
+
+        if (day < closing) {
+            return { month: month0 + 1, year };
+        }
+
+        month0 += 1;
+        if (month0 > 11) {
+            month0 = 0;
+            year += 1;
+        }
+    }
+
+    return { month: month0 + 1, year };
 }
 
 type CardLike = { isPrimary?: boolean | null };

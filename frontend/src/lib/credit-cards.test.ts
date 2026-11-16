@@ -61,6 +61,12 @@ describe("openInvoiceMonth", () => {    test("em novembro, cartão que vence dia
         assert.deepEqual(openInvoiceMonth(new Date(2026, 1, 20), 7, 31), { month: 2, year: 2026 });
         assert.deepEqual(openInvoiceMonth(new Date(2026, 1, 21), 7, 31), { month: 3, year: 2026 });
     });
+
+    test("cartão vence dia 5 e fecha 7 dias antes: compra em 30/08 já cai na fatura de outubro (pois set fechou em 29/08)", () => {
+        assert.deepEqual(openInvoiceMonth(new Date(2026, 7, 28), 7, 5), { month: 9, year: 2026 });
+        assert.deepEqual(openInvoiceMonth(new Date(2026, 7, 29), 7, 5), { month: 10, year: 2026 });
+        assert.deepEqual(openInvoiceMonth(new Date(2026, 7, 30), 7, 5), { month: 10, year: 2026 });
+    });
 });
 
 describe("primaryCard", () => {
