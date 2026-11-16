@@ -859,6 +859,9 @@ export class InvestmentsService {
             grossValue = inv.investedAmount * Math.pow(1 + taxaDiariaAtivo, businessDays);
         }
 
+        // Truncate per-lot gross value to 2 decimal places (matching bank/B3 CDB convention)
+        grossValue = Math.trunc((grossValue + 1e-9) * 100) / 100;
+
         const grossProfit = grossValue - inv.investedAmount;
 
         let irTaxRate = 0;

@@ -321,6 +321,8 @@ Qualquer plano executado neste projeto deve preservar estas regras:
   - `backend/src/investments/business-days.util.ts`, `investments-projection.calculator.ts` e `frontend/src/lib/investments-dividends.ts`: `estimateDividendPaymentDate` e os utilitários de contagem de dias úteis (`nthBusinessDayOfMonth`/`addBusinessDays`) passaram a considerar feriados nacionais ANBIMA (`isAnbimaBusinessDayUtc`, ex.: Finados em `02/11`), além de alinhar o pagamento de `BTHF11` (data-ex no 6º dia útil) ao 10º dia útil do mês (`16/11/2026` em nov/2026).
 - **Cálculo Automático de Fatura para Cartões com `dueDay <= invoiceClosingOffset` (`credit-cards`):**
   - `backend/src/credit-cards/helpers/invoice-calculator.helper.ts` (`calculateInvoiceDate`) e `frontend/src/lib/credit-cards.ts` (`openInvoiceMonth`): substituído o avanço único (`if`) por laço iterativo até encontrar a primeira fatura cujo fechamento (`dueDate - invoiceClosingOffset`) ainda não foi atingido. Corrige automaticamente compras de fim de mês em cartões como `dueDay = 5, offset = 7` (ex.: compra em `30/08` após fechamento de `29/08` da fatura de `05/09` passa a cair direto na fatura de `05/10`).
+- **Truncamento por Título em Renda Fixa (`investments`):**
+  - `backend/src/investments/investments.service.ts`: `grossValue` de títulos de `FIXED_INCOME` é truncado em 2 casas decimais por lote (`Math.trunc((grossValue + 1e-9) * 100) / 100`) antes da soma da carteira, alinhando o total bruto centavo a centavo com o padrão bancário/B3.
 
 
 
