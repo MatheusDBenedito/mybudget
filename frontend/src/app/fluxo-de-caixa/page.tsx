@@ -209,7 +209,7 @@ export default function FluxoDeCaixaPage() {
                         </li>
                     </ul>
                     <div className="mt-2 flex justify-between gap-2 border-t pt-2 text-sm">
-                        <span className="text-muted-foreground">Total bruto</span>
+                        <span className="text-muted-foreground">Total</span>
                         <span className="font-medium tabular-nums"><Money value={accountsTotal} /></span>
                     </div>
                 </StatCard>
