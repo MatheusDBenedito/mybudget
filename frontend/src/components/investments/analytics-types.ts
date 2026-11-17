@@ -1,4 +1,4 @@
-export type AnalyticsRange = "30d" | "90d" | "180d" | "1y";
+export type AnalyticsRange = "all" | "30d" | "90d" | "180d" | "1y";
 
 export interface DailyGainPoint {
     date: string;
@@ -34,6 +34,7 @@ export interface InvestmentsAnalyticsResponse {
 }
 
 export const ANALYTICS_RANGES: Array<{ value: AnalyticsRange; label: string }> = [
+    { value: "all", label: "Início" },
     { value: "30d", label: "30d" },
     { value: "90d", label: "90d" },
     { value: "180d", label: "6m" },
@@ -41,6 +42,6 @@ export const ANALYTICS_RANGES: Array<{ value: AnalyticsRange; label: string }> =
 ];
 
 export function formatShortBrDate(ymd: string): string {
-    const [, mm, dd] = ymd.split("-");
-    return mm && dd ? `${dd}/${mm}` : ymd;
+    const [yyyy, mm, dd] = ymd.split("-");
+    return yyyy && mm && dd ? `${dd}/${mm}/${yyyy.slice(2)}` : ymd;
 }

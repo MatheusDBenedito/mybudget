@@ -323,8 +323,34 @@ export const computeClassStats = (invs: ApiInvestment[], portfolioTotal: number)
 
 export const VARIABLE_INCOME_CLASSES: InvestmentType[] = ["VARIABLE_INCOME", "FII", "US_STOCK", "CRYPTO"];
 
+export type VariableIncomeAccountBalance = {
+    id: string;
+    name: string;
+    balance: number;
+    currency?: string;
+};
+
+/**
+ * Returns the accounts linked (`accountId`) to at least one variable income investment
+ * matching `selectedClasses` (defaulting to all variable income classes).
+ */
+export function extractVariableIncomeAccounts(
+    investments: ApiInvestment[],
+    accounts: VariableIncomeAccountBalance[],
+    selectedClasses: InvestmentType[] = VARIABLE_INCOME_CLASSES,
+): VariableIncomeAccountBalance[] {
+    const linkedIds = new Set(
+        investments
+            .filter(i => selectedClasses.includes(i.type) && i.accountId)
+            .map(i => i.accountId!),
+    );
+    return accounts.filter(a => linkedIds.has(a.id));
+}
+
 export type VariableIncomeComparisonResult = {
     currentValue: number;
+    accountsBalance: number;
+    includeAccounts: boolean;
     receivedDividends: number;
     includeDividends: boolean;
     effectiveValue: number;
@@ -335,13 +361,15 @@ export type VariableIncomeComparisonResult = {
 
 /**
  * Compares the user's real cash contributed to variable income accounts against
- * current market value, with an option to include received (PAID) dividends.
+ * current market value + optional brokerage account balances + optional received (PAID) dividends.
  */
 export function computeVariableIncomeComparison(params: {
     investments: ApiInvestment[];
     realContributedAmount: number;
     receivedDividends: number;
     includeDividends: boolean;
+    accountsBalance?: number;
+    includeAccounts?: boolean;
     selectedClasses?: InvestmentType[];
 }): VariableIncomeComparisonResult {
     const classes = params.selectedClasses ?? VARIABLE_INCOME_CLASSES;
@@ -349,14 +377,20 @@ export function computeVariableIncomeComparison(params: {
         .filter(i => classes.includes(i.type))
         .reduce((acc, i) => acc + currentValueOf(i), 0);
 
+    const includeAccounts = params.includeAccounts ?? true;
+    const rawAccountsBalance = params.accountsBalance ?? 0;
+    const accountsToAdd = includeAccounts ? rawAccountsBalance : 0;
+
     const dividends = params.includeDividends ? Math.max(0, params.receivedDividends) : 0;
-    const effectiveValue = currentValue + dividends;
+    const effectiveValue = currentValue + accountsToAdd + dividends;
     const contributed = Math.max(0, params.realContributedAmount);
     const profitBrl = effectiveValue - contributed;
     const profitPct = contributed > 0 ? (profitBrl / contributed) * 100 : 0;
 
     return {
         currentValue: Math.round(currentValue * 100) / 100,
+        accountsBalance: Math.round(rawAccountsBalance * 100) / 100,
+        includeAccounts,
         receivedDividends: Math.round(params.receivedDividends * 100) / 100,
         includeDividends: params.includeDividends,
         effectiveValue: Math.round(effectiveValue * 100) / 100,

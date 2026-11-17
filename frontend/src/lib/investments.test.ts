@@ -7,6 +7,7 @@ import {
     computeClassStats,
     computeVariableIncomeComparison,
     currentValueOf,
+    extractVariableIncomeAccounts,
     grossValueOf,
     taxAmountOf,
 } from "./investments.ts";
@@ -202,33 +203,50 @@ describe("consolidateInvestments", () => {
         assert.equal(currentValueOf(cdb), 1077.5);
     });
 
-    test("computeVariableIncomeComparison compara aporte real vs valor atual com ou sem dividendos", () => {
+    test("computeVariableIncomeComparison compara aporte real vs valor atual com ou sem dividendos e saldo das contas", () => {
         const invs: ApiInvestment[] = [
-            { id: "1", name: "CDB", type: "FIXED_INCOME", investedAmount: 40000, currentValue: 45000, netValue: 44000 },
-            { id: "2", name: "PETR4", type: "VARIABLE_INCOME", investedAmount: 3000, currentValue: 3500, currentPrice: 35, quantity: 100 },
-            { id: "3", name: "MXRF11", type: "FII", investedAmount: 3000, currentValue: 3200, currentPrice: 10, quantity: 320 },
-            { id: "4", name: "VOO", type: "US_STOCK", investedAmount: 3000, currentValue: 3300 },
-            { id: "5", name: "SOL", type: "CRYPTO", investedAmount: 500, currentValue: 300, currentPrice: 300, quantity: 1 },
+            { id: "1", name: "CDB", type: "FIXED_INCOME", investedAmount: 40000, currentValue: 45000, netValue: 44000, accountId: "acc-cdb" },
+            { id: "2", name: "PETR4", type: "VARIABLE_INCOME", investedAmount: 3000, currentValue: 3500, currentPrice: 35, quantity: 100, accountId: "acc-clear" },
+            { id: "3", name: "MXRF11", type: "FII", investedAmount: 3000, currentValue: 3200, currentPrice: 10, quantity: 320, accountId: "acc-clear" },
+            { id: "4", name: "VOO", type: "US_STOCK", investedAmount: 3000, currentValue: 3300, accountId: "acc-c6g" },
+            { id: "5", name: "SOL", type: "CRYPTO", investedAmount: 500, currentValue: 300, currentPrice: 300, quantity: 1, accountId: "acc-bin" },
         ];
+
+        const accounts = [
+            { id: "acc-cdb", name: "C6", balance: 800 },
+            { id: "acc-clear", name: "Clear", balance: 150 },
+            { id: "acc-c6g", name: "C6 Global", balance: 3000 },
+            { id: "acc-bin", name: "Binance", balance: 0 },
+        ];
+
+        const linked = extractVariableIncomeAccounts(invs, accounts);
+        assert.deepEqual(linked.map(a => a.id), ["acc-clear", "acc-c6g", "acc-bin"]);
+        const accountsBalance = linked.reduce((s, a) => s + a.balance, 0);
+        assert.equal(accountsBalance, 3150);
 
         const withoutDivs = computeVariableIncomeComparison({
             investments: invs,
             realContributedAmount: 11038.42,
             receivedDividends: 654.68,
             includeDividends: false,
+            accountsBalance,
+            includeAccounts: true,
         });
         assert.equal(withoutDivs.currentValue, 10300);
-        assert.equal(withoutDivs.effectiveValue, 10300);
-        assert.equal(withoutDivs.profitBrl, -738.42);
+        assert.equal(withoutDivs.accountsBalance, 3150);
+        assert.equal(withoutDivs.effectiveValue, 13450);
+        assert.equal(withoutDivs.profitBrl, 2411.58);
 
         const withDivs = computeVariableIncomeComparison({
             investments: invs,
             realContributedAmount: 11038.42,
             receivedDividends: 654.68,
             includeDividends: true,
+            accountsBalance,
+            includeAccounts: true,
         });
-        assert.equal(withDivs.effectiveValue, 10954.68);
-        assert.equal(withDivs.profitBrl, -83.74);
+        assert.equal(withDivs.effectiveValue, 14104.68);
+        assert.equal(withDivs.profitBrl, 3066.26);
     });
 });
 

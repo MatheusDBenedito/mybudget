@@ -71,7 +71,7 @@ export function InvestmentsDailyGainChart({
                 {summary && (
                     <div className="grid grid-cols-3 gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
                         <div>
-                            <div className="text-muted-foreground">Total ({range})</div>
+                            <div className="text-muted-foreground">Total ({range === "all" ? "início" : range})</div>
                             <div className={`font-semibold tabular-nums ${summary.totalGain >= 0 ? "text-positive" : "text-negative"}`}>
                                 <Money value={summary.totalGain} />
                             </div>

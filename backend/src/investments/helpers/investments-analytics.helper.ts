@@ -1,6 +1,6 @@
 import { bcbDateToYmd, CdiDayRate, toUtcYmd } from './cdi-calculation.helper';
 
-export type AnalyticsRange = '30d' | '90d' | '180d' | '1y';
+export type AnalyticsRange = 'all' | '30d' | '90d' | '180d' | '1y';
 
 export interface DailyPricePoint {
     date: string; // YYYY-MM-DD
@@ -53,21 +53,23 @@ export function resolveAnalyticsRangeDays(range: AnalyticsRange): number {
     switch (range) {
         case '30d':
             return 30;
+        case '90d':
+            return 90;
         case '180d':
             return 180;
         case '1y':
             return 365;
-        case '90d':
+        case 'all':
         default:
-            return 90;
+            return 365 * 5;
     }
 }
 
 export function normalizeAnalyticsRange(raw?: string): AnalyticsRange {
-    if (raw === '30d' || raw === '90d' || raw === '180d' || raw === '1y') {
+    if (raw === 'all' || raw === '30d' || raw === '90d' || raw === '180d' || raw === '1y') {
         return raw;
     }
-    return '90d';
+    return 'all';
 }
 
 function round2(n: number): number {

@@ -14,8 +14,10 @@ import { API_BASE_URL } from "@/lib/auth";
 import {
     type ApiInvestment,
     type InvestmentType,
+    type VariableIncomeAccountBalance,
     VARIABLE_INCOME_CLASSES,
     computeVariableIncomeComparison,
+    extractVariableIncomeAccounts,
 } from "@/lib/investments";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +32,7 @@ const CLASS_SHORT_LABELS: Record<InvestmentType, string> = {
 
 interface VariableIncomeComparisonCardProps {
     investments: ApiInvestment[];
+    accounts?: VariableIncomeAccountBalance[];
     receivedDividendsBrl: number;
     contributedAmount: number;
     onContributedAmountSaved: (nextAmount: number) => void;
@@ -39,6 +42,7 @@ interface VariableIncomeComparisonCardProps {
 
 export function VariableIncomeComparisonCard({
     investments,
+    accounts = [],
     receivedDividendsBrl,
     contributedAmount,
     onContributedAmountSaved,
@@ -46,16 +50,22 @@ export function VariableIncomeComparisonCard({
     className,
 }: VariableIncomeComparisonCardProps) {
     const [includeDividends, setIncludeDividends] = useState(true);
+    const [includeAccounts, setIncludeAccounts] = useState(true);
     const [selectedClasses, setSelectedClasses] = useState<InvestmentType[]>(VARIABLE_INCOME_CLASSES);
     const [isEditing, setIsEditing] = useState(false);
     const [editText, setEditText] = useState("");
     const [isSaving, setIsSaving] = useState(false);
+
+    const linkedAccounts = extractVariableIncomeAccounts(investments, accounts, selectedClasses);
+    const accountsBalance = linkedAccounts.reduce((acc, a) => acc + (a.balance || 0), 0);
 
     const comparison = computeVariableIncomeComparison({
         investments,
         realContributedAmount: contributedAmount,
         receivedDividends: receivedDividendsBrl,
         includeDividends,
+        accountsBalance,
+        includeAccounts,
         selectedClasses,
     });
 
@@ -112,7 +122,7 @@ export function VariableIncomeComparisonCard({
                     <CardTitle className="text-base">Aporte Real vs. Valor Atual (Renda Variável)</CardTitle>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
                     <div className="flex flex-wrap items-center gap-1">
                         {VARIABLE_INCOME_CLASSES.map(cls => {
                             const active = selectedClasses.includes(cls);
@@ -136,19 +146,30 @@ export function VariableIncomeComparisonCard({
 
                     <div className="flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1">
                         <Switch
+                            id="include-accounts-switch"
+                            checked={includeAccounts}
+                            onCheckedChange={setIncludeAccounts}
+                        />
+                        <Label htmlFor="include-accounts-switch" className="cursor-pointer text-xs font-medium">
+                            Incluir saldo das contas
+                        </Label>
+                    </div>
+
+                    <div className="flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1">
+                        <Switch
                             id="include-dividends-switch"
                             checked={includeDividends}
                             onCheckedChange={setIncludeDividends}
                         />
                         <Label htmlFor="include-dividends-switch" className="cursor-pointer text-xs font-medium">
-                            Incluir dividendos recebidos
+                            Incluir dividendos
                         </Label>
                     </div>
                 </div>
             </CardHeader>
 
             <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
                     <div className="rounded-lg border bg-muted/30 p-3">
                         <div className="flex items-center justify-between text-xs text-muted-foreground">
                             <span>Aporte real informado</span>
@@ -187,7 +208,7 @@ export function VariableIncomeComparisonCard({
                     </div>
 
                     <div className="rounded-lg border bg-muted/30 p-3">
-                        <div className="text-xs text-muted-foreground">Valor atual em carteira</div>
+                        <div className="text-xs text-muted-foreground">Ativos em carteira</div>
                         <div className="mt-1 text-lg font-semibold tabular-nums">
                             <Money value={comparison.currentValue} />
                         </div>
@@ -198,7 +219,19 @@ export function VariableIncomeComparisonCard({
 
                     <div className="rounded-lg border bg-muted/30 p-3">
                         <div className="text-xs text-muted-foreground">
-                            Dividendos recebidos ({includeDividends ? "inclusos" : "excluídos"})
+                            Contas RV ({includeAccounts ? "incluso" : "excluído"})
+                        </div>
+                        <div className={cn("mt-1 text-lg font-semibold tabular-nums", includeAccounts ? "text-foreground" : "text-muted-foreground")}>
+                            +<Money value={comparison.accountsBalance} />
+                        </div>
+                        <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={linkedAccounts.map(a => a.name).join(", ")}>
+                            {linkedAccounts.length > 0 ? linkedAccounts.map(a => a.name).join(" + ") : "Nenhuma conta vinculada"}
+                        </div>
+                    </div>
+
+                    <div className="rounded-lg border bg-muted/30 p-3">
+                        <div className="text-xs text-muted-foreground">
+                            Dividendos ({includeDividends ? "inclusos" : "excluídos"})
                         </div>
                         <div className={cn("mt-1 text-lg font-semibold tabular-nums", includeDividends ? "text-positive" : "text-muted-foreground")}>
                             +<Money value={comparison.receivedDividends} />
@@ -236,7 +269,9 @@ export function VariableIncomeComparisonCard({
                     <div className="space-y-1">
                         <div className="flex justify-between">
                             <span className="text-muted-foreground">
-                                Valor atual {includeDividends ? "(+ dividendos)" : "(sem dividendos)"}
+                                Valor atual
+                                {includeAccounts ? " + contas" : ""}
+                                {includeDividends ? " + dividendos" : ""}
                             </span>
                             <span className={cn("font-semibold tabular-nums", comparison.profitBrl >= 0 ? "text-positive" : "text-negative")}>
                                 <Money value={comparison.effectiveValue} />

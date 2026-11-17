@@ -7,7 +7,7 @@ import { InvestmentsDailyGainChart } from "@/components/investments/InvestmentsD
 import { InvestmentsBenchmarkChart } from "@/components/investments/InvestmentsBenchmarkChart";
 import { VariableIncomeComparisonCard } from "@/components/investments/VariableIncomeComparisonCard";
 import type { AnalyticsRange, InvestmentsAnalyticsResponse } from "@/components/investments/analytics-types";
-import { type ApiInvestment as FullApiInvestment } from "@/lib/investments";
+import { type ApiInvestment as FullApiInvestment, type VariableIncomeAccountBalance } from "@/lib/investments";
 import { type ApiInvestmentDividend, enrichDividendsWithStatus } from "@/lib/investments-dividends";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -75,11 +75,12 @@ export default function RelatoriosPage() {
     const [investments, setInvestments] = useState<ApiInvestment[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>("90d");
+    const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>("all");
     const [analytics, setAnalytics] = useState<InvestmentsAnalyticsResponse | null>(null);
   const analyticsLoading = analytics === null || analytics.range !== analyticsRange;
     const [dividends, setDividends] = useState<ApiInvestmentDividend[]>([]);
     const [contributedAmount, setContributedAmount] = useState<number>(11038.42);
+    const [accounts, setAccounts] = useState<VariableIncomeAccountBalance[]>([]);
 
     // For annual comparison chart
     const [annualData, setAnnualData] = useState<
@@ -101,11 +102,12 @@ export default function RelatoriosPage() {
         const fetchData = async () => {
             setIsLoading(true);
             try {
-                const [transRes, invRes, divRes, setRes] = await Promise.all([
+                const [transRes, invRes, divRes, setRes, accRes] = await Promise.all([
                     fetch(`${API_BASE_URL}/transactions?month=${selectedMonth}&year=${selectedYear}`),
                     fetch(`${API_BASE_URL}/investments`),
                     fetch(`${API_BASE_URL}/investments/dividends`),
                     fetch(`${API_BASE_URL}/investments/settings`),
+                    fetch(`${API_BASE_URL}/accounts`),
                 ]);
                 if (transRes.ok) setTransactions(await transRes.json());
                 if (invRes.ok) setInvestments(await invRes.json());
@@ -117,6 +119,7 @@ export default function RelatoriosPage() {
                     const s = await setRes.json();
                     if (s?.variableIncomeContributedAmount != null) setContributedAmount(s.variableIncomeContributedAmount);
                 }
+                if (accRes.ok) setAccounts(await accRes.json());
             } catch (error) {
                 console.error("Failed to load report data", error);
             } finally {
@@ -618,6 +621,7 @@ export default function RelatoriosPage() {
                         <h2 className="text-lg font-semibold tracking-tight">Análise de Investimentos &amp; Índices</h2>
                         <VariableIncomeComparisonCard
                             investments={investments as unknown as FullApiInvestment[]}
+                            accounts={accounts}
                             receivedDividendsBrl={receivedDividendsBrl}
                             contributedAmount={contributedAmount}
                             onContributedAmountSaved={setContributedAmount}

@@ -50,7 +50,7 @@ export default function DashboardPage() {
   const [cards, setCards] = useState<DashCreditCard[]>([]);
   const [cashFlow, setCashFlow] = useState<CashFlowData | null>(null);
   const [projections, setProjections] = useState<InvestmentsProjectionData | null>(null);
-  const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>("90d");
+  const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>("all");
   const [analytics, setAnalytics] = useState<InvestmentsAnalyticsResponse | null>(null);
   const analyticsLoading = analytics === null || analytics.range !== analyticsRange;
   const [dividends, setDividends] = useState<ApiInvestmentDividend[]>([]);
@@ -151,7 +151,7 @@ export default function DashboardPage() {
       case "investments-benchmarks":
         return <InvestmentsBenchmarkChart data={analytics} range={analyticsRange} onRangeChange={setAnalyticsRange} isLoading={analyticsLoading} height={item.height} className="h-full rounded-2xl" />;
       case "variable-income-comparison":
-        return <VariableIncomeComparisonCard investments={investments} receivedDividendsBrl={receivedDividendsBrl} contributedAmount={contributedAmount} onContributedAmountSaved={setContributedAmount} height={item.height} className="h-full rounded-2xl" />;
+        return <VariableIncomeComparisonCard investments={investments} accounts={accounts} receivedDividendsBrl={receivedDividendsBrl} contributedAmount={contributedAmount} onContributedAmountSaved={setContributedAmount} height={item.height} className="h-full rounded-2xl" />;
       case "cashflow-chart":
         return (
           <Panel

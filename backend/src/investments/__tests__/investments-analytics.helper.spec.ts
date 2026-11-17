@@ -6,10 +6,12 @@ import {
 } from '../helpers/investments-analytics.helper';
 
 describe('investments-analytics.helper', () => {
-    it('normalizes analytics range with 90d as default', () => {
-        expect(normalizeAnalyticsRange(undefined)).toBe('90d');
-        expect(normalizeAnalyticsRange('invalid')).toBe('90d');
+    it('normalizes analytics range with all as default', () => {
+        expect(normalizeAnalyticsRange(undefined)).toBe('all');
+        expect(normalizeAnalyticsRange('invalid')).toBe('all');
+        expect(normalizeAnalyticsRange('all')).toBe('all');
         expect(normalizeAnalyticsRange('30d')).toBe('30d');
+        expect(normalizeAnalyticsRange('90d')).toBe('90d');
         expect(normalizeAnalyticsRange('180d')).toBe('180d');
         expect(normalizeAnalyticsRange('1y')).toBe('1y');
         expect(resolveAnalyticsRangeDays('90d')).toBe(90);

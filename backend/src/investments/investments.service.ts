@@ -59,6 +59,7 @@ export class InvestmentsService {
     // In-memory cache for IPCA monthly rates & historical daily prices (analytics)
     private ipcaCache: MonthlyRatePoint[] = [];
     private ipcaCacheExpiry: number = 0;
+    private ipcaCacheStart: Date | null = null;
     private historyCache: Map<string, { expiresAt: number; points: DailyPricePoint[] }> = new Map();
     private readonly ANALYTICS_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
 
@@ -1296,15 +1297,28 @@ export class InvestmentsService {
 
     async getAnalytics(workspaceId: string, rawRange?: string) {
         const range = normalizeAnalyticsRange(rawRange);
-        const days = resolveAnalyticsRangeDays(range);
         const now = new Date();
-        const startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days));
-        const startYmd = toUtcYmd(startDate);
-        const endYmd = toUtcYmd(now);
 
         const investments = await this.prisma.investment.findMany({
             where: { workspaceId },
         });
+
+        const allStartTimes = investments
+            .filter(i => i.investmentDate)
+            .map(i => new Date(i.investmentDate!).getTime());
+
+        let startDate: Date;
+        if (range === 'all' && allStartTimes.length > 0) {
+            const minDate = new Date(Math.min(...allStartTimes));
+            startDate = new Date(Date.UTC(minDate.getUTCFullYear(), minDate.getUTCMonth(), minDate.getUTCDate()));
+        } else {
+            const days = resolveAnalyticsRangeDays(range === 'all' ? '1y' : range);
+            startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days));
+        }
+
+        const startYmd = toUtcYmd(startDate);
+        const endYmd = toUtcYmd(now);
+        const days = Math.max(1, Math.ceil((now.getTime() - startDate.getTime()) / 86_400_000));
 
         const fixedStartTimes = investments
             .filter(i => i.type === 'FIXED_INCOME' && i.investmentDate)
@@ -1312,8 +1326,6 @@ export class InvestmentsService {
         const cdiFetchStart = fixedStartTimes.length > 0
             ? new Date(Math.min(startDate.getTime(), ...fixedStartTimes))
             : startDate;
-
-        const yahooRange = days <= 30 ? '1mo' : days <= 90 ? '3mo' : days <= 180 ? '6mo' : '1y';
 
         // Collect unique tickers for variable income
         const b3Tickers = [...new Set(
@@ -1336,22 +1348,22 @@ export class InvestmentsService {
             this.fetchUsdRate(),
             this.fetchCdiRates(cdiFetchStart, now),
             this.fetchIpcaMonthlyRates(startDate, now),
-            this.fetchYahooDailyHistory('^BVSP', yahooRange),
-            this.fetchYahooDailyHistory('^GSPC', yahooRange),
+            this.fetchYahooDailyHistory('^BVSP', startDate, now),
+            this.fetchYahooDailyHistory('^GSPC', startDate, now),
         ]);
 
         const priceHistoryByTicker = new Map<string, DailyPricePoint[]>();
         await Promise.all([
             ...b3Tickers.map(async t => {
-                const pts = await this.fetchYahooDailyHistory(`${t}.SA`, yahooRange);
+                const pts = await this.fetchYahooDailyHistory(`${t}.SA`, startDate, now);
                 if (pts.length > 0) priceHistoryByTicker.set(t, pts);
             }),
             ...usTickers.map(async t => {
-                const pts = await this.fetchYahooDailyHistory(t.replace('.', '-'), yahooRange);
+                const pts = await this.fetchYahooDailyHistory(t.replace('.', '-'), startDate, now);
                 if (pts.length > 0) priceHistoryByTicker.set(t, pts);
             }),
             ...cryptoTickers.map(async t => {
-                const pts = await this.fetchBinanceDailyHistory(t, days + 5);
+                const pts = await this.fetchBinanceDailyHistory(t, startDate, days + 5);
                 if (pts.length > 0) priceHistoryByTicker.set(t, pts);
             }),
         ]);
@@ -1387,10 +1399,15 @@ export class InvestmentsService {
     }
 
     private async fetchIpcaMonthlyRates(startDate: Date, endDate: Date): Promise<MonthlyRatePoint[]> {
-        if (this.ipcaCache.length > 0 && Date.now() < this.ipcaCacheExpiry) {
+        const fetchStart = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth() - 3, 1));
+        if (
+            this.ipcaCache.length > 0 &&
+            Date.now() < this.ipcaCacheExpiry &&
+            this.ipcaCacheStart !== null &&
+            this.ipcaCacheStart <= fetchStart
+        ) {
             return this.ipcaCache;
         }
-        const fetchStart = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth() - 3, 1));
         const fmt = (d: Date) =>
             `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
         const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados?formato=json&dataInicial=${fmt(fetchStart)}&dataFinal=${fmt(endDate)}`;
@@ -1408,6 +1425,7 @@ export class InvestmentsService {
                         };
                     })
                     .filter(p => Number.isFinite(p.rate));
+                this.ipcaCacheStart = fetchStart;
                 this.ipcaCacheExpiry = Date.now() + this.ANALYTICS_CACHE_TTL_MS;
                 return this.ipcaCache;
             }
@@ -1417,14 +1435,19 @@ export class InvestmentsService {
         return this.ipcaCache;
     }
 
-    private async fetchYahooDailyHistory(symbol: string, range: string): Promise<DailyPricePoint[]> {
-        const cacheKey = `yahoo:${symbol}:${range}`;
+    private async fetchYahooDailyHistory(symbol: string, startDate: Date, endDate: Date): Promise<DailyPricePoint[]> {
+        const startYmd = toUtcYmd(startDate);
+        const endYmd = toUtcYmd(endDate);
+        const cacheKey = `yahoo:${symbol}:${startYmd}:${endYmd}`;
         const cached = this.historyCache.get(cacheKey);
         if (cached && Date.now() < cached.expiresAt) {
             return cached.points;
         }
 
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`;
+        // Pad start by 7 days so the first active day has a prior close for daily gain delta
+        const period1 = Math.floor((startDate.getTime() - 7 * 86_400_000) / 1000);
+        const period2 = Math.floor(endDate.getTime() / 1000) + 86_400;
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&period1=${period1}&period2=${period2}`;
         try {
             const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
             if (response.ok) {
@@ -1459,17 +1482,19 @@ export class InvestmentsService {
         return [];
     }
 
-    private async fetchBinanceDailyHistory(ticker: string, limit: number): Promise<DailyPricePoint[]> {
+    private async fetchBinanceDailyHistory(ticker: string, startDate: Date, limit: number): Promise<DailyPricePoint[]> {
         const upper = ticker.toUpperCase();
         if (upper === 'USDT' || upper === 'USDC') return [];
         const symbol = this.BINANCE_SYMBOL_MAP[upper] || `${upper}USDT`;
-        const cacheKey = `binance:${symbol}:${limit}`;
+        const startYmd = toUtcYmd(startDate);
+        const cacheKey = `binance:${symbol}:${startYmd}:${limit}`;
         const cached = this.historyCache.get(cacheKey);
         if (cached && Date.now() < cached.expiresAt) {
             return cached.points;
         }
 
-        const url = `https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=1d&limit=${Math.min(limit, 500)}`;
+        const startTime = Math.max(0, startDate.getTime() - 2 * 86_400_000);
+        const url = `https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=1d&startTime=${startTime}&limit=${Math.min(limit, 1000)}`;
         try {
             const response = await fetch(url);
             if (response.ok) {
