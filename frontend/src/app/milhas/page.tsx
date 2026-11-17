@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, CircleCheck, Clock, Send, CalendarClock, ListChecks } from "lucide-react";
+import { Plus, CircleCheck, Clock, Send, CalendarClock, ListChecks, Plane, Calculator, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
@@ -10,12 +10,15 @@ import { Panel } from "@/components/Panel";
 import { MilesEntriesTable } from "@/components/miles/MilesEntriesTable";
 import { MilesEntryModal } from "@/components/miles/MilesEntryModal";
 import { TransferBonusCalculator } from "@/components/miles/TransferBonusCalculator";
+import { TripMilesCalculator } from "@/components/miles/TripMilesCalculator";
+import { MilesValuationModal } from "@/components/miles/MilesValuationModal";
 import { CardPointsEstimate } from "@/components/miles/CardPointsEstimate";
 import {
     type ApiMilesEntry, type MilesCard, type MilesEntryDraft, type MilesStatus,
-    MILES_STATUS_LABELS, daysUntil, formatPoints, fromApiDate, isOverdue,
+    DEFAULT_MILES_PROGRAM_RATES, MILES_STATUS_LABELS, daysUntil, formatPoints, fromApiDate, isOverdue,
 } from "@/lib/miles";
 import { API_BASE_URL } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 
 export default function MilhasPage() {
     const [entries, setEntries] = useState<ApiMilesEntry[]>([]);
@@ -26,6 +29,10 @@ export default function MilhasPage() {
     const [modalOpen, setModalOpen] = useState(false);
     const [editingEntry, setEditingEntry] = useState<ApiMilesEntry | null>(null);
     const [draft, setDraft] = useState<MilesEntryDraft | null>(null);
+
+    const [programRates, setProgramRates] = useState<Record<string, number>>(DEFAULT_MILES_PROGRAM_RATES);
+    const [valuationModalOpen, setValuationModalOpen] = useState(false);
+    const [calcTab, setCalcTab] = useState<"trip" | "transfer">("trip");
 
     const loadEntries = useCallback(async () => {
         try {
@@ -39,11 +46,16 @@ export default function MilhasPage() {
     useEffect(() => {
         const loadAll = async () => {
             try {
-                const [cardsRes] = await Promise.all([
+                const [cardsRes, valRes] = await Promise.all([
                     fetch(`${API_BASE_URL}/credit-cards`),
+                    fetch(`${API_BASE_URL}/miles/valuations`),
                     loadEntries(),
                 ]);
                 if (cardsRes.ok) setCards(await cardsRes.json());
+                if (valRes.ok) {
+                    const data = await valRes.json();
+                    if (data?.rates) setProgramRates(data.rates);
+                }
             } catch (error) {
                 console.error("Failed to load miles page", error);
             } finally {
@@ -125,12 +137,18 @@ export default function MilhasPage() {
         <div className="space-y-6">
             <PageHeader
                 title="Gestão de Milhas"
-                description="Acompanhe os pontos gerados pelos cartões e simule transferências bonificadas."
+                description="Acompanhe os pontos gerados pelos cartões, planeje viagens e simule transferências bonificadas."
                 actions={
-                    <Button onClick={() => openNew()}>
-                        <Plus className="h-4 w-4" />
-                        Novo Lançamento
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Button variant="outline" onClick={() => setValuationModalOpen(true)}>
+                            <Settings2 className="h-4 w-4" />
+                            Valor do milheiro
+                        </Button>
+                        <Button onClick={() => openNew()}>
+                            <Plus className="h-4 w-4" />
+                            Novo Lançamento
+                        </Button>
+                    </div>
                 }
             />
 
@@ -179,8 +197,47 @@ export default function MilhasPage() {
                     </Panel>
                 </div>
 
-                <div className="min-w-0 xl:sticky xl:top-[120px]">
-                    <TransferBonusCalculator onRegister={openNew} />
+                <div className="min-w-0 space-y-3 xl:sticky xl:top-[120px]">
+                    <div className="grid grid-cols-2 gap-1 rounded-lg border bg-card p-1">
+                        <button
+                            type="button"
+                            onClick={() => setCalcTab("trip")}
+                            className={cn(
+                                "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                                calcTab === "trip"
+                                    ? "bg-primary text-primary-foreground shadow-xs"
+                                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                            )}
+                        >
+                            <Plane className="h-3.5 w-3.5" />
+                            Planejar Viagem
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setCalcTab("transfer")}
+                            className={cn(
+                                "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                                calcTab === "transfer"
+                                    ? "bg-primary text-primary-foreground shadow-xs"
+                                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                            )}
+                        >
+                            <Calculator className="h-3.5 w-3.5" />
+                            Transferência
+                        </button>
+                    </div>
+
+                    {calcTab === "trip" ? (
+                        <Panel title="Calculadora de viagem" icon={Plane}>
+                            <TripMilesCalculator
+                                rates={programRates}
+                                creditedPoints={sumBy("CREDITED")}
+                                onOpenSettings={() => setValuationModalOpen(true)}
+                            />
+                        </Panel>
+                    ) : (
+                        <TransferBonusCalculator onRegister={openNew} />
+                    )}
                 </div>
             </div>
 
@@ -191,6 +248,13 @@ export default function MilhasPage() {
                 entry={editingEntry}
                 draft={draft}
                 onSaved={loadEntries}
+            />
+
+            <MilesValuationModal
+                open={valuationModalOpen}
+                onOpenChange={setValuationModalOpen}
+                rates={programRates}
+                onSaved={setProgramRates}
             />
         </div>
     );

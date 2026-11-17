@@ -191,3 +191,128 @@ export function daysUntil(date: Date, today: Date = new Date()): number {
 export function isOverdue(status: MilesStatus, expectedCreditDate: Date, today: Date = new Date()): boolean {
     return status !== "CREDITED" && daysUntil(expectedCreditDate, today) < 0;
 }
+
+// ---------------------------------------------------------------------------
+// Trip miles planner & milheiro valuation
+// ---------------------------------------------------------------------------
+
+/** Default average BRL value per 1,000 points/miles ("milheiro"). */
+export const DEFAULT_MILES_PROGRAM_RATES: Record<string, number> = {
+    Smiles: 17.5,
+    "LATAM Pass": 24.0,
+    TudoAzul: 21.0,
+    "TAP Miles&Go": 38.0,
+    "Iberia Plus": 45.0,
+    Livelo: 35.0,
+    Esfera: 35.0,
+    "Átomos": 35.0,
+};
+
+/** Parses a BRL rate typed in pt-BR ("17,50", "R$ 24.00") into a number. Empty/invalid -> NaN. */
+export function parseCurrencyRateInput(value: string): number {
+    const cleaned = value.replace(/[R$\s]/g, "").replace(",", ".");
+    if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return Number.NaN;
+    return Number(cleaned);
+}
+
+/** Case-insensitive lookup for a program's configured milheiro rate (R$ / 1.000 pts). */
+export function resolveProgramRate(program: string, rates: Record<string, number>): number {
+    const target = program.trim().toLowerCase();
+    if (!target) return 0;
+    for (const [key, val] of Object.entries(rates)) {
+        if (key.trim().toLowerCase() === target && Number.isFinite(val) && val >= 0) {
+            return val;
+        }
+    }
+    for (const [key, val] of Object.entries(DEFAULT_MILES_PROGRAM_RATES)) {
+        if (key.trim().toLowerCase() === target) {
+            return val;
+        }
+    }
+    return 0;
+}
+
+export type TripMilesPlanInput = {
+    requiredMiles: number;
+    bankPoints: number;
+    transferBonusPercent?: number;
+    costPerThousandBrl: number;
+};
+
+export type TripMilesPlanResult = {
+    requiredMiles: number;
+    bankPoints: number;
+    transferBonusPercent: number;
+    milesFromBank: number;
+    missingMilesToBuy: number;
+    surplusMiles: number;
+    coveragePercent: number;
+    costPerThousandBrl: number;
+    estimatedPurchaseCostBrl: number;
+    totalTripEquivalentBrl: number;
+};
+
+/** Returns a user-facing error message for the trip planner, or null when valid. */
+export function getTripPlanInputError(
+    requiredMiles: number,
+    bankPoints: number,
+    bonusPercent: number,
+    costPerThousandBrl: number,
+): string | null {
+    if (!Number.isFinite(requiredMiles) || requiredMiles <= 0) {
+        return "Informe a quantidade de milhas necessária para a viagem.";
+    }
+    if (!Number.isInteger(requiredMiles)) {
+        return "As milhas necessárias devem ser um número inteiro.";
+    }
+    if (!Number.isFinite(bankPoints) || bankPoints < 0) {
+        return "A quantidade de pontos no banco não pode ser negativa.";
+    }
+    if (!Number.isInteger(bankPoints)) {
+        return "Os pontos no banco devem ser um número inteiro.";
+    }
+    if (!Number.isFinite(bonusPercent) || bonusPercent < 0) {
+        return "O bônus de transferência não pode ser negativo.";
+    }
+    if (bonusPercent > MAX_BONUS_PERCENT) {
+        return `O bônus não pode passar de ${MAX_BONUS_PERCENT}%.`;
+    }
+    if (!Number.isFinite(costPerThousandBrl) || costPerThousandBrl < 0) {
+        return "O valor do milheiro não pode ser negativo.";
+    }
+    return null;
+}
+
+/**
+ * Calculates how many miles a user's bank points generate (with optional transfer bonus),
+ * how many miles are still missing to buy for a trip, and the estimated BRL costs using the milheiro rate.
+ */
+export function calculateTripMilesPlan(input: TripMilesPlanInput): TripMilesPlanResult {
+    const requiredMiles = input.requiredMiles;
+    const bankPoints = input.bankPoints;
+    const transferBonusPercent = input.transferBonusPercent ?? 0;
+    const costPerThousandBrl = input.costPerThousandBrl;
+
+    const err = getTripPlanInputError(requiredMiles, bankPoints, transferBonusPercent, costPerThousandBrl);
+    if (err) throw new RangeError(err);
+
+    const milesFromBank = Math.floor(Math.round(bankPoints * (1 + transferBonusPercent / 100) * 100) / 100);
+    const missingMilesToBuy = Math.max(0, requiredMiles - milesFromBank);
+    const surplusMiles = Math.max(0, milesFromBank - requiredMiles);
+    const coveragePercent = Math.min(100, Math.round((milesFromBank / requiredMiles) * 1000) / 10);
+    const estimatedPurchaseCostBrl = Math.round(((missingMilesToBuy / 1000) * costPerThousandBrl) * 100) / 100;
+    const totalTripEquivalentBrl = Math.round(((requiredMiles / 1000) * costPerThousandBrl) * 100) / 100;
+
+    return {
+        requiredMiles,
+        bankPoints,
+        transferBonusPercent,
+        milesFromBank,
+        missingMilesToBuy,
+        surplusMiles,
+        coveragePercent,
+        costPerThousandBrl,
+        estimatedPurchaseCostBrl,
+        totalTripEquivalentBrl,
+    };
+}

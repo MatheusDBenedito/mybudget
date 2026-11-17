@@ -3,13 +3,17 @@ import assert from "node:assert/strict";
 import {
     buildTransferSummary,
     calculateTransferBonus,
+    calculateTripMilesPlan,
     daysUntil,
     estimatePointsFromSpend,
     fromApiDate,
     getTransferInputError,
+    getTripPlanInputError,
     isOverdue,
+    parseCurrencyRateInput,
     parsePercentInput,
     parsePointsInput,
+    resolveProgramRate,
     suggestExpectedCreditDate,
     toDateInputValue,
 } from "./miles.ts";
@@ -166,5 +170,62 @@ describe("dates", () => {
         assert.equal(isOverdue("TRANSFERRED", past, today), true);
         assert.equal(isOverdue("CREDITED", past, today), false);
         assert.equal(isOverdue("PENDING", new Date(2026, 10, 20), today), false);
+    });
+});
+
+describe("trip planner & milheiro valuation", () => {
+    test("parseCurrencyRateInput parses pt-BR currency and rejects invalid values", () => {
+        assert.equal(parseCurrencyRateInput("17,50"), 17.5);
+        assert.equal(parseCurrencyRateInput("R$ 24,00"), 24);
+        assert.equal(parseCurrencyRateInput("35"), 35);
+        assert.ok(Number.isNaN(parseCurrencyRateInput("")));
+        assert.ok(Number.isNaN(parseCurrencyRateInput("-5")));
+        assert.ok(Number.isNaN(parseCurrencyRateInput("abc")));
+    });
+
+    test("resolveProgramRate finds configured rates case-insensitively and falls back to defaults", () => {
+        const rates = { Smiles: 16.5, CustomAir: 50 };
+        assert.equal(resolveProgramRate("smiles", rates), 16.5);
+        assert.equal(resolveProgramRate("customair", rates), 50);
+        assert.equal(resolveProgramRate("LATAM Pass", rates), 24.0);
+        assert.equal(resolveProgramRate("Desconhecido", rates), 0);
+    });
+
+    test("calculateTripMilesPlan computes missing miles and purchase cost without bonus", () => {
+        const plan = calculateTripMilesPlan({
+            requiredMiles: 100_000,
+            bankPoints: 40_000,
+            transferBonusPercent: 0,
+            costPerThousandBrl: 17.5,
+        });
+        assert.equal(plan.milesFromBank, 40_000);
+        assert.equal(plan.missingMilesToBuy, 60_000);
+        assert.equal(plan.surplusMiles, 0);
+        assert.equal(plan.coveragePercent, 40);
+        assert.equal(plan.estimatedPurchaseCostBrl, 1050);
+        assert.equal(plan.totalTripEquivalentBrl, 1750);
+    });
+
+    test("calculateTripMilesPlan applies transfer bonus and handles surplus", () => {
+        const plan = calculateTripMilesPlan({
+            requiredMiles: 100_000,
+            bankPoints: 60_000,
+            transferBonusPercent: 80,
+            costPerThousandBrl: 20,
+        });
+        assert.equal(plan.milesFromBank, 108_000);
+        assert.equal(plan.missingMilesToBuy, 0);
+        assert.equal(plan.surplusMiles, 8_000);
+        assert.equal(plan.coveragePercent, 100);
+        assert.equal(plan.estimatedPurchaseCostBrl, 0);
+        assert.equal(plan.totalTripEquivalentBrl, 2000);
+    });
+
+    test("getTripPlanInputError validates required fields", () => {
+        assert.ok(getTripPlanInputError(0, 10_000, 0, 17.5));
+        assert.ok(getTripPlanInputError(10_000, -1, 0, 17.5));
+        assert.ok(getTripPlanInputError(10_000, 5_000, -10, 17.5));
+        assert.ok(getTripPlanInputError(10_000, 5_000, 0, -1));
+        assert.equal(getTripPlanInputError(10_000, 0, 0, 17.5), null);
     });
 });

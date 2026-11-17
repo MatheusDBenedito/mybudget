@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMilesEntryDto } from './dto/create-miles-entry.dto';
 import { UpdateMilesEntryDto } from './dto/update-miles-entry.dto';
+import { mergeMilesProgramRates, normalizeMilesProgramRates } from './helpers/miles-valuation.helper';
 
 const CARD_SELECT = { select: { id: true, name: true, color: true } } as const;
 
@@ -83,6 +84,28 @@ export class MilesService {
             throw new NotFoundException(`Lançamento de milhas ${id} não encontrado.`);
         }
         return this.prisma.milesEntry.delete({ where: { id } });
+    }
+
+    async getValuations(workspaceId: string): Promise<{ rates: Record<string, number> }> {
+        const workspace = await this.prisma.workspace.findUnique({
+            where: { id: workspaceId },
+            select: { milesProgramRates: true },
+        });
+        return {
+            rates: mergeMilesProgramRates(workspace?.milesProgramRates),
+        };
+    }
+
+    async updateValuations(workspaceId: string, rates: Record<string, number>): Promise<{ rates: Record<string, number> }> {
+        const sanitized = normalizeMilesProgramRates(rates);
+        const updated = await this.prisma.workspace.update({
+            where: { id: workspaceId },
+            data: { milesProgramRates: sanitized },
+            select: { milesProgramRates: true },
+        });
+        return {
+            rates: mergeMilesProgramRates(updated.milesProgramRates),
+        };
     }
 
     private async ensureCardExists(workspaceId: string, creditCardId: string) {

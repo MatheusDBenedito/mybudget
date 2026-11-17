@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/common';
 import {
     CurrentWorkspace,
     RequirePermissions,
@@ -7,6 +7,7 @@ import {
 import { MilesService } from './miles.service';
 import { CreateMilesEntryDto } from './dto/create-miles-entry.dto';
 import { UpdateMilesEntryDto } from './dto/update-miles-entry.dto';
+import { UpdateMilesValuationsDto } from './dto/update-miles-valuations.dto';
 
 @Controller('miles')
 export class MilesController {
@@ -22,6 +23,21 @@ export class MilesController {
     @RequirePermissions('view:milhas')
     findAll(@CurrentWorkspace() ctx: WorkspaceRequestContext) {
         return this.milesService.findAll(ctx.workspaceId);
+    }
+
+    @Get('valuations')
+    @RequirePermissions('view:milhas')
+    getValuations(@CurrentWorkspace() ctx: WorkspaceRequestContext) {
+        return this.milesService.getValuations(ctx.workspaceId);
+    }
+
+    @Put('valuations')
+    @RequirePermissions('edit:milhas')
+    updateValuations(
+        @CurrentWorkspace() ctx: WorkspaceRequestContext,
+        @Body() dto: UpdateMilesValuationsDto,
+    ) {
+        return this.milesService.updateValuations(ctx.workspaceId, dto.rates);
     }
 
     @Patch(':id')
