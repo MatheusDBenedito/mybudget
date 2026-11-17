@@ -17,11 +17,11 @@ import {
     planDividendCredits,
     resolveAccountLinkUpdate,
 } from './helpers/dividend-credit.helper';
-
-interface CdiDayRate {
-    date: string;   // "DD/MM/YYYY"
-    rate: number;    // daily rate as decimal (e.g. 0.00055131)
-}
+import {
+    CdiDayRate,
+    filterCdiRatesByRange,
+    compoundWithRealRates,
+} from './helpers/cdi-calculation.helper';
 
 @Injectable()
 export class InvestmentsService {
@@ -412,18 +412,12 @@ export class InvestmentsService {
     }
 
     /**
-     * Filters cached CDI rates to the given date range.
+     * Filters cached CDI rates to the given date range using YYYY-MM-DD comparison.
+     * Compares calendar days in UTC to avoid timezone drift (e.g. UTC server vs UTC-3 Brazil)
+     * and includes the investment date rate per Brazilian fixed income convention.
      */
     private filterCdiRatesByRange(rates: CdiDayRate[], startDate: Date, endDate: Date): CdiDayRate[] {
-        const parseDate = (dateStr: string): Date => {
-            const [dd, mm, yyyy] = dateStr.split('/');
-            return new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
-        };
-
-        return rates.filter(r => {
-            const d = parseDate(r.date);
-            return d > startDate && d <= endDate;
-        });
+        return filterCdiRatesByRange(rates, startDate, endDate);
     }
 
     /**
@@ -431,12 +425,7 @@ export class InvestmentsService {
      * M = P * ∏(1 + CDI_dia * cdiPercentage/100) for each business day
      */
     private compoundWithRealRates(investedAmount: number, cdiPercentage: number, rates: CdiDayRate[]): number {
-        let accumulated = 1;
-        const factor = cdiPercentage / 100;
-        for (const r of rates) {
-            accumulated *= (1 + r.rate * factor);
-        }
-        return investedAmount * accumulated;
+        return compoundWithRealRates(investedAmount, cdiPercentage, rates);
     }
 
     /**
