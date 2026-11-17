@@ -215,7 +215,7 @@ Qualquer plano executado neste projeto deve preservar estas regras:
    - `projectedBalance` carrega o saldo atual (`openingBalance`) mês a mês usando `leadIn` e retorna `null` para meses já fechados.
 
 5. **Investimentos e Fontes Externas (`investments.service.ts`):**
-   - **Renda Fixa (`FIXED_INCOME`):** usa série histórica do CDI (BCB série 12, cache 1h, fallback `14.9%` a.a. / 252 dias úteis) e aplica tabela regressiva de IR por dias corridos.
+   - **Renda Fixa (`FIXED_INCOME`):** usa série histórica do CDI (BCB série 12, cache 1h, fallback `14.9%` a.a. / 252 dias úteis) e aplica tabela regressiva de IR por dias corridos. O filtro de taxas diárias do CDI (`filterCdiRatesByRange` em `helpers/cdi-calculation.helper.ts`) utiliza comparação determinística de strings no formato `YYYY-MM-DD` em UTC (`toUtcYmd`), incluindo a taxa da data de aplicação (`rStr >= startStr && rStr <= endStr`) conforme convenção de renda fixa brasileira, eliminando divergências de fuso horário entre ambientes locais (`America/Sao_Paulo`) e servidores em nuvem (`UTC` na Vercel).
    - **B3 — Ações (`VARIABLE_INCOME`) e Fundos Imobiliários (`FII`):** cotações via `brapi.dev` (requer `BRAPI_TOKEN`; plano gratuito exige 1 ticker por requisição com intervalo sequencial `300ms` e cache de 20 min).
    - **EUA (`US_STOCK`):** cotações em USD via Yahoo Finance (primário) com fallback `brapi.dev` (cache 15 min) + câmbio `USD-BRL` via AwesomeAPI (cache 5 min). Calcula `currentValue` em BRL e separa `assetGainBrl` vs `fxGainBrl`.
    - **Cripto (`CRYPTO`):** cotações em BRL via CoinGecko (cache 5 min, mapa `COINGECKO_ID_MAP`).
