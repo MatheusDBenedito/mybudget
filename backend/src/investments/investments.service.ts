@@ -22,6 +22,7 @@ import {
     filterCdiRatesByRange,
     compoundWithRealRates,
 } from './helpers/cdi-calculation.helper';
+import { fetchUsdRateWithFallback } from './helpers/usd-rate.helper';
 
 @Injectable()
 export class InvestmentsService {
@@ -42,6 +43,7 @@ export class InvestmentsService {
     // In-memory cache for USD -> BRL rate
     private usdRate: number | null = null;
     private usdRateExpiry: number = 0;
+    private usdFetchInFlight: Promise<void> | null = null;
     private readonly USD_RATE_TTL_MS = 1000 * 60 * 5; // 5 minutes
 
     // brapi.dev free tier rate-limits bursts, so tickers are fetched sequentially
@@ -697,25 +699,32 @@ export class InvestmentsService {
     }
 
     /**
-     * Fetches the current USD -> BRL rate (AwesomeAPI) with 5-min cache.
+     * Fetches the current USD -> BRL rate with multi-provider fallback and 5-min cache.
+     * Providers in order: AwesomeAPI -> Yahoo Finance (USDBRL=X) -> open.er-api
      */
     private async fetchUsdRate(): Promise<void> {
         if (this.usdRate != null && Date.now() < this.usdRateExpiry) return;
-        try {
-            const response = await fetch('https://economia.awesomeapi.com.br/last/USD-BRL');
-            if (!response.ok) {
-                this.logger.warn(`AwesomeAPI returned ${response.status} for USD-BRL`);
-                return;
-            }
-            const data = await response.json();
-            const bid = Number(data?.USDBRL?.bid);
-            if (bid > 0) {
-                this.usdRate = bid;
-                this.usdRateExpiry = Date.now() + this.USD_RATE_TTL_MS;
-            }
-        } catch (error) {
-            this.logger.warn(`Failed to fetch USD rate: ${error.message}`);
+        if (this.usdFetchInFlight) {
+            await this.usdFetchInFlight;
+            return;
         }
+
+        this.usdFetchInFlight = (async () => {
+            const result = await fetchUsdRateWithFallback();
+            if (result != null && result.rate > 0) {
+                this.usdRate = result.rate;
+                this.usdRateExpiry = Date.now() + this.USD_RATE_TTL_MS;
+                if (result.provider !== 'awesomeapi') {
+                    this.logger.log(`Fetched USD rate from ${result.provider} fallback: ${result.rate}`);
+                }
+            } else {
+                this.logger.warn('All USD rate providers failed. Keeping existing or fallback rate.');
+            }
+        })().finally(() => {
+            this.usdFetchInFlight = null;
+        });
+
+        await this.usdFetchInFlight;
     }
 
     /**
