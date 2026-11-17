@@ -2,7 +2,13 @@
 
 import { Money } from "@/components/Money";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { InvestmentsDailyGainChart } from "@/components/investments/InvestmentsDailyGainChart";
+import { InvestmentsBenchmarkChart } from "@/components/investments/InvestmentsBenchmarkChart";
+import { VariableIncomeComparisonCard } from "@/components/investments/VariableIncomeComparisonCard";
+import type { AnalyticsRange, InvestmentsAnalyticsResponse } from "@/components/investments/analytics-types";
+import { type ApiInvestment as FullApiInvestment } from "@/lib/investments";
+import { type ApiInvestmentDividend, enrichDividendsWithStatus } from "@/lib/investments-dividends";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, Wallet, ChartPie } from "lucide-react";
@@ -69,6 +75,12 @@ export default function RelatoriosPage() {
     const [investments, setInvestments] = useState<ApiInvestment[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
+    const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>("90d");
+    const [analytics, setAnalytics] = useState<InvestmentsAnalyticsResponse | null>(null);
+  const analyticsLoading = analytics === null || analytics.range !== analyticsRange;
+    const [dividends, setDividends] = useState<ApiInvestmentDividend[]>([]);
+    const [contributedAmount, setContributedAmount] = useState<number>(11038.42);
+
     // For annual comparison chart
     const [annualData, setAnnualData] = useState<
         { month: string; receitas: number; despesas: number }[]
@@ -89,12 +101,22 @@ export default function RelatoriosPage() {
         const fetchData = async () => {
             setIsLoading(true);
             try {
-                const [transRes, invRes] = await Promise.all([
+                const [transRes, invRes, divRes, setRes] = await Promise.all([
                     fetch(`${API_BASE_URL}/transactions?month=${selectedMonth}&year=${selectedYear}`),
                     fetch(`${API_BASE_URL}/investments`),
+                    fetch(`${API_BASE_URL}/investments/dividends`),
+                    fetch(`${API_BASE_URL}/investments/settings`),
                 ]);
                 if (transRes.ok) setTransactions(await transRes.json());
                 if (invRes.ok) setInvestments(await invRes.json());
+                if (divRes.ok) {
+                    const divPayload = await divRes.json();
+                    setDividends(divPayload.dividends ?? []);
+                }
+                if (setRes.ok) {
+                    const s = await setRes.json();
+                    if (s?.variableIncomeContributedAmount != null) setContributedAmount(s.variableIncomeContributedAmount);
+                }
             } catch (error) {
                 console.error("Failed to load report data", error);
             } finally {
@@ -103,6 +125,20 @@ export default function RelatoriosPage() {
         };
         fetchData();
     }, [selectedMonth, selectedYear]);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch(`${API_BASE_URL}/investments/analytics?range=${analyticsRange}`)
+            .then(r => (r.ok ? r.json() : null))
+            .then(data => { if (data && !cancelled) setAnalytics(data); })
+            .catch(err => console.error("Failed to load investment analytics", err));
+        return () => { cancelled = true; };
+    }, [analyticsRange]);
+
+    const receivedDividendsBrl = useMemo(
+        () => enrichDividendsWithStatus(dividends).filter(d => d.status === "PAID").reduce((acc, d) => acc + d.totalBrl, 0),
+        [dividends],
+    );
 
     // Fetch annual data for bar chart
     useEffect(() => {
@@ -577,6 +613,29 @@ export default function RelatoriosPage() {
                                 )}
                             </CardContent>
                         </Card>
+                    </div>
+                    <div className="space-y-4 pt-2">
+                        <h2 className="text-lg font-semibold tracking-tight">Análise de Investimentos &amp; Índices</h2>
+                        <VariableIncomeComparisonCard
+                            investments={investments as unknown as FullApiInvestment[]}
+                            receivedDividendsBrl={receivedDividendsBrl}
+                            contributedAmount={contributedAmount}
+                            onContributedAmountSaved={setContributedAmount}
+                        />
+                        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                            <InvestmentsDailyGainChart
+                                data={analytics}
+                                range={analyticsRange}
+                                onRangeChange={setAnalyticsRange}
+                                isLoading={analyticsLoading}
+                            />
+                            <InvestmentsBenchmarkChart
+                                data={analytics}
+                                range={analyticsRange}
+                                onRangeChange={setAnalyticsRange}
+                                isLoading={analyticsLoading}
+                            />
+                        </div>
                     </div>
                 </>
             )}

@@ -5,6 +5,7 @@ import {
     assetGroupKey,
     consolidateInvestments,
     computeClassStats,
+    computeVariableIncomeComparison,
     currentValueOf,
     grossValueOf,
     taxAmountOf,
@@ -199,6 +200,35 @@ describe("consolidateInvestments", () => {
         assert.equal(grossValueOf(cdb), 1100);
         assert.equal(taxAmountOf(cdb), 22.5);
         assert.equal(currentValueOf(cdb), 1077.5);
+    });
+
+    test("computeVariableIncomeComparison compara aporte real vs valor atual com ou sem dividendos", () => {
+        const invs: ApiInvestment[] = [
+            { id: "1", name: "CDB", type: "FIXED_INCOME", investedAmount: 40000, currentValue: 45000, netValue: 44000 },
+            { id: "2", name: "PETR4", type: "VARIABLE_INCOME", investedAmount: 3000, currentValue: 3500, currentPrice: 35, quantity: 100 },
+            { id: "3", name: "MXRF11", type: "FII", investedAmount: 3000, currentValue: 3200, currentPrice: 10, quantity: 320 },
+            { id: "4", name: "VOO", type: "US_STOCK", investedAmount: 3000, currentValue: 3300 },
+            { id: "5", name: "SOL", type: "CRYPTO", investedAmount: 500, currentValue: 300, currentPrice: 300, quantity: 1 },
+        ];
+
+        const withoutDivs = computeVariableIncomeComparison({
+            investments: invs,
+            realContributedAmount: 11038.42,
+            receivedDividends: 654.68,
+            includeDividends: false,
+        });
+        assert.equal(withoutDivs.currentValue, 10300);
+        assert.equal(withoutDivs.effectiveValue, 10300);
+        assert.equal(withoutDivs.profitBrl, -738.42);
+
+        const withDivs = computeVariableIncomeComparison({
+            investments: invs,
+            realContributedAmount: 11038.42,
+            receivedDividends: 654.68,
+            includeDividends: true,
+        });
+        assert.equal(withDivs.effectiveValue, 10954.68);
+        assert.equal(withDivs.profitBrl, -83.74);
     });
 });
 

@@ -320,3 +320,48 @@ export const computeClassStats = (invs: ApiInvestment[], portfolioTotal: number)
         portfolioPct: portfolioTotal > 0 ? (current / portfolioTotal) * 100 : 0,
     };
 };
+
+export const VARIABLE_INCOME_CLASSES: InvestmentType[] = ["VARIABLE_INCOME", "FII", "US_STOCK", "CRYPTO"];
+
+export type VariableIncomeComparisonResult = {
+    currentValue: number;
+    receivedDividends: number;
+    includeDividends: boolean;
+    effectiveValue: number;
+    realContributedAmount: number;
+    profitBrl: number;
+    profitPct: number;
+};
+
+/**
+ * Compares the user's real cash contributed to variable income accounts against
+ * current market value, with an option to include received (PAID) dividends.
+ */
+export function computeVariableIncomeComparison(params: {
+    investments: ApiInvestment[];
+    realContributedAmount: number;
+    receivedDividends: number;
+    includeDividends: boolean;
+    selectedClasses?: InvestmentType[];
+}): VariableIncomeComparisonResult {
+    const classes = params.selectedClasses ?? VARIABLE_INCOME_CLASSES;
+    const currentValue = params.investments
+        .filter(i => classes.includes(i.type))
+        .reduce((acc, i) => acc + currentValueOf(i), 0);
+
+    const dividends = params.includeDividends ? Math.max(0, params.receivedDividends) : 0;
+    const effectiveValue = currentValue + dividends;
+    const contributed = Math.max(0, params.realContributedAmount);
+    const profitBrl = effectiveValue - contributed;
+    const profitPct = contributed > 0 ? (profitBrl / contributed) * 100 : 0;
+
+    return {
+        currentValue: Math.round(currentValue * 100) / 100,
+        receivedDividends: Math.round(params.receivedDividends * 100) / 100,
+        includeDividends: params.includeDividends,
+        effectiveValue: Math.round(effectiveValue * 100) / 100,
+        realContributedAmount: Math.round(contributed * 100) / 100,
+        profitBrl: Math.round(profitBrl * 100) / 100,
+        profitPct: Math.round(profitPct * 100) / 100,
+    };
+}

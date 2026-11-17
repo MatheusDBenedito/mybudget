@@ -21,8 +21,18 @@ import {
     CdiDayRate,
     filterCdiRatesByRange,
     compoundWithRealRates,
+    toUtcYmd,
 } from './helpers/cdi-calculation.helper';
 import { fetchUsdRateWithFallback } from './helpers/usd-rate.helper';
+import { UpdateInvestmentSettingsDto } from './dto/update-investment-settings.dto';
+import {
+    buildBenchmarkComparisonSeries,
+    buildDailyGainsSeries,
+    DailyPricePoint,
+    MonthlyRatePoint,
+    normalizeAnalyticsRange,
+    resolveAnalyticsRangeDays,
+} from './helpers/investments-analytics.helper';
 
 @Injectable()
 export class InvestmentsService {
@@ -45,6 +55,12 @@ export class InvestmentsService {
     private usdRateExpiry: number = 0;
     private usdFetchInFlight: Promise<void> | null = null;
     private readonly USD_RATE_TTL_MS = 1000 * 60 * 5; // 5 minutes
+
+    // In-memory cache for IPCA monthly rates & historical daily prices (analytics)
+    private ipcaCache: MonthlyRatePoint[] = [];
+    private ipcaCacheExpiry: number = 0;
+    private historyCache: Map<string, { expiresAt: number; points: DailyPricePoint[] }> = new Map();
+    private readonly ANALYTICS_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
 
     // brapi.dev free tier rate-limits bursts, so tickers are fetched sequentially
     private readonly BRAPI_REQUEST_INTERVAL_MS = 300;
@@ -1253,5 +1269,228 @@ export class InvestmentsService {
             today,
             cdiDailyRate: latestCdiRate,
         });
+    }
+
+    async getSettings(workspaceId: string) {
+        const ws = await this.prisma.workspace.findUnique({
+            where: { id: workspaceId },
+            select: { variableIncomeContributedAmount: true },
+        });
+        return {
+            variableIncomeContributedAmount: ws?.variableIncomeContributedAmount ?? null,
+        };
+    }
+
+    async updateSettings(workspaceId: string, dto: UpdateInvestmentSettingsDto) {
+        const updated = await this.prisma.workspace.update({
+            where: { id: workspaceId },
+            data: {
+                variableIncomeContributedAmount: dto.variableIncomeContributedAmount ?? null,
+            },
+            select: { variableIncomeContributedAmount: true },
+        });
+        return {
+            variableIncomeContributedAmount: updated.variableIncomeContributedAmount,
+        };
+    }
+
+    async getAnalytics(workspaceId: string, rawRange?: string) {
+        const range = normalizeAnalyticsRange(rawRange);
+        const days = resolveAnalyticsRangeDays(range);
+        const now = new Date();
+        const startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days));
+        const startYmd = toUtcYmd(startDate);
+        const endYmd = toUtcYmd(now);
+
+        const investments = await this.prisma.investment.findMany({
+            where: { workspaceId },
+        });
+
+        const fixedStartTimes = investments
+            .filter(i => i.type === 'FIXED_INCOME' && i.investmentDate)
+            .map(i => new Date(i.investmentDate!).getTime());
+        const cdiFetchStart = fixedStartTimes.length > 0
+            ? new Date(Math.min(startDate.getTime(), ...fixedStartTimes))
+            : startDate;
+
+        const yahooRange = days <= 30 ? '1mo' : days <= 90 ? '3mo' : days <= 180 ? '6mo' : '1y';
+
+        // Collect unique tickers for variable income
+        const b3Tickers = [...new Set(
+            investments
+                .filter(i => (i.type === 'VARIABLE_INCOME' || i.type === 'FII') && i.tickerCode)
+                .map(i => i.tickerCode!.trim().toUpperCase()),
+        )];
+        const usTickers = [...new Set(
+            investments
+                .filter(i => i.type === 'US_STOCK' && i.tickerCode)
+                .map(i => i.tickerCode!.trim().toUpperCase()),
+        )];
+        const cryptoTickers = [...new Set(
+            investments
+                .filter(i => i.type === 'CRYPTO' && i.tickerCode)
+                .map(i => i.tickerCode!.trim().toUpperCase()),
+        )];
+
+        const [, cdiRates, ipcaMonthlyRates, ibovHistory, sp500History] = await Promise.all([
+            this.fetchUsdRate(),
+            this.fetchCdiRates(cdiFetchStart, now),
+            this.fetchIpcaMonthlyRates(startDate, now),
+            this.fetchYahooDailyHistory('^BVSP', yahooRange),
+            this.fetchYahooDailyHistory('^GSPC', yahooRange),
+        ]);
+
+        const priceHistoryByTicker = new Map<string, DailyPricePoint[]>();
+        await Promise.all([
+            ...b3Tickers.map(async t => {
+                const pts = await this.fetchYahooDailyHistory(`${t}.SA`, yahooRange);
+                if (pts.length > 0) priceHistoryByTicker.set(t, pts);
+            }),
+            ...usTickers.map(async t => {
+                const pts = await this.fetchYahooDailyHistory(t.replace('.', '-'), yahooRange);
+                if (pts.length > 0) priceHistoryByTicker.set(t, pts);
+            }),
+            ...cryptoTickers.map(async t => {
+                const pts = await this.fetchBinanceDailyHistory(t, days + 5);
+                if (pts.length > 0) priceHistoryByTicker.set(t, pts);
+            }),
+        ]);
+
+        const { dailyGains, summary, startingPortfolioValue } = buildDailyGainsSeries({
+            investments,
+            cdiRates,
+            priceHistoryByTicker,
+            usdRate: this.usdRate ?? 5.75,
+            startYmd,
+            endYmd,
+        });
+
+        const fallbackCapitalBase = investments.reduce((acc, i) => acc + (i.investedAmount || 0), 0);
+        const benchmarks = buildBenchmarkComparisonSeries({
+            dailyGains,
+            startingPortfolioValue,
+            fallbackCapitalBase,
+            cdiRates,
+            ipcaMonthlyRates,
+            ibovHistory,
+            sp500History,
+        });
+
+        return {
+            range,
+            startDate: startYmd,
+            endDate: endYmd,
+            summary,
+            dailyGains,
+            benchmarks,
+        };
+    }
+
+    private async fetchIpcaMonthlyRates(startDate: Date, endDate: Date): Promise<MonthlyRatePoint[]> {
+        if (this.ipcaCache.length > 0 && Date.now() < this.ipcaCacheExpiry) {
+            return this.ipcaCache;
+        }
+        const fetchStart = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth() - 3, 1));
+        const fmt = (d: Date) =>
+            `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
+        const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados?formato=json&dataInicial=${fmt(fetchStart)}&dataFinal=${fmt(endDate)}`;
+
+        try {
+            const response = await fetch(url);
+            if (response.ok) {
+                const data: Array<{ data: string; valor: string }> = await response.json();
+                this.ipcaCache = data
+                    .map(item => {
+                        const [dd, mm, yyyy] = item.data.split('/');
+                        return {
+                            date: `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`,
+                            rate: parseFloat(item.valor) / 100,
+                        };
+                    })
+                    .filter(p => Number.isFinite(p.rate));
+                this.ipcaCacheExpiry = Date.now() + this.ANALYTICS_CACHE_TTL_MS;
+                return this.ipcaCache;
+            }
+        } catch (error: any) {
+            this.logger.warn(`Failed to fetch IPCA from BCB: ${error?.message}`);
+        }
+        return this.ipcaCache;
+    }
+
+    private async fetchYahooDailyHistory(symbol: string, range: string): Promise<DailyPricePoint[]> {
+        const cacheKey = `yahoo:${symbol}:${range}`;
+        const cached = this.historyCache.get(cacheKey);
+        if (cached && Date.now() < cached.expiresAt) {
+            return cached.points;
+        }
+
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`;
+        try {
+            const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            if (response.ok) {
+                const data = await response.json();
+                const result = data?.chart?.result?.[0];
+                const timestamps: number[] = result?.timestamp ?? [];
+                const closes: Array<number | null> = result?.indicators?.quote?.[0]?.close ?? [];
+                const byDate = new Map<string, number>();
+
+                for (let idx = 0; idx < timestamps.length; idx++) {
+                    const ts = timestamps[idx];
+                    const close = closes[idx];
+                    if (typeof ts === 'number' && typeof close === 'number' && close > 0) {
+                        const ymd = toUtcYmd(new Date(ts * 1000));
+                        byDate.set(ymd, close);
+                    }
+                }
+
+                const points = [...byDate.entries()]
+                    .map(([date, close]) => ({ date, close }))
+                    .sort((a, b) => a.date.localeCompare(b.date));
+
+                this.historyCache.set(cacheKey, {
+                    expiresAt: Date.now() + this.ANALYTICS_CACHE_TTL_MS,
+                    points,
+                });
+                return points;
+            }
+        } catch (error: any) {
+            this.logger.warn(`Failed to fetch Yahoo history for ${symbol}: ${error?.message}`);
+        }
+        return [];
+    }
+
+    private async fetchBinanceDailyHistory(ticker: string, limit: number): Promise<DailyPricePoint[]> {
+        const upper = ticker.toUpperCase();
+        if (upper === 'USDT' || upper === 'USDC') return [];
+        const symbol = this.BINANCE_SYMBOL_MAP[upper] || `${upper}USDT`;
+        const cacheKey = `binance:${symbol}:${limit}`;
+        const cached = this.historyCache.get(cacheKey);
+        if (cached && Date.now() < cached.expiresAt) {
+            return cached.points;
+        }
+
+        const url = `https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=1d&limit=${Math.min(limit, 500)}`;
+        try {
+            const response = await fetch(url);
+            if (response.ok) {
+                const data: any[][] = await response.json();
+                const points: DailyPricePoint[] = data
+                    .map(row => ({
+                        date: toUtcYmd(new Date(Number(row[0]))),
+                        close: Number(row[4]),
+                    }))
+                    .filter(p => p.close > 0)
+                    .sort((a, b) => a.date.localeCompare(b.date));
+
+                this.historyCache.set(cacheKey, {
+                    expiresAt: Date.now() + this.ANALYTICS_CACHE_TTL_MS,
+                    points,
+                });
+                return points;
+            }
+        } catch (error: any) {
+            this.logger.warn(`Failed to fetch Binance history for ${symbol}: ${error?.message}`);
+        }
+        return [];
     }
 }

@@ -17,6 +17,7 @@ import {
 import { InvestmentsService } from './investments.service';
 import { CreateInvestmentDto } from './dto/create-investment.dto';
 import { UpdateInvestmentDto } from './dto/update-investment.dto';
+import { UpdateInvestmentSettingsDto } from './dto/update-investment-settings.dto';
 
 @Controller('investments')
 export class InvestmentsController {
@@ -55,6 +56,30 @@ export class InvestmentsController {
         const y = year ? parseInt(year, 10) : undefined;
         const count = months ? Math.min(Math.max(parseInt(months, 10) || 12, 1), 24) : 12;
         return this.investmentsService.getProjections(ctx.workspaceId, m, y, count);
+    }
+
+    @Get('analytics')
+    @RequireAnyPermissions('view:investimentos', 'view:resumo')
+    getAnalytics(
+        @CurrentWorkspace() ctx: WorkspaceRequestContext,
+        @Query('range') range?: string,
+    ) {
+        return this.investmentsService.getAnalytics(ctx.workspaceId, range);
+    }
+
+    @Get('settings')
+    @RequireAnyPermissions('view:investimentos', 'view:resumo')
+    getSettings(@CurrentWorkspace() ctx: WorkspaceRequestContext) {
+        return this.investmentsService.getSettings(ctx.workspaceId);
+    }
+
+    @Patch('settings')
+    @RequirePermissions('edit:investimentos')
+    updateSettings(
+        @CurrentWorkspace() ctx: WorkspaceRequestContext,
+        @Body() dto: UpdateInvestmentSettingsDto,
+    ) {
+        return this.investmentsService.updateSettings(ctx.workspaceId, dto);
     }
 
     @Post('dividends/sync')

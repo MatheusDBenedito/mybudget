@@ -7,6 +7,9 @@ export const DASHBOARD_BLOCK_IDS = [
     "cashflow-chart",
     "investments-chart",
     "yields-projection",
+    "investments-daily-gain",
+    "investments-benchmarks",
+    "variable-income-comparison",
 ] as const;
 
 export type DashboardBlockId = (typeof DASHBOARD_BLOCK_IDS)[number];
@@ -32,6 +35,9 @@ export const DASHBOARD_BLOCK_TITLES: Record<DashboardBlockId, string> = {
     "cashflow-chart": "Recebimentos x Despesas",
     "investments-chart": "Investimentos",
     "yields-projection": "Projeção de Rendimentos (12m)",
+    "investments-daily-gain": "Ganho diário dos investimentos",
+    "investments-benchmarks": "Carteira vs. Índices",
+    "variable-income-comparison": "Aporte Real vs. Renda Variável",
 };
 
 export const DEFAULT_LAYOUT: DashboardLayoutItem[] = [
@@ -41,6 +47,9 @@ export const DEFAULT_LAYOUT: DashboardLayoutItem[] = [
     { id: "yields-projection", width: 100, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "cashflow-chart", width: 67, height: DEFAULT_DASHBOARD_HEIGHT_PX },
     { id: "investments-chart", width: 33, height: DEFAULT_DASHBOARD_HEIGHT_PX },
+    { id: "investments-daily-gain", width: 50, height: DEFAULT_DASHBOARD_HEIGHT_PX },
+    { id: "investments-benchmarks", width: 50, height: DEFAULT_DASHBOARD_HEIGHT_PX },
+    { id: "variable-income-comparison", width: 100, height: 340 },
 ];
 
 export const DASHBOARD_LAYOUT_CACHE_KEY = "mybudget:dashboard-layout:v1";

@@ -87,7 +87,8 @@ model Workspace {
   slug        String   @unique
   createdById String
   createdBy   User     @relation("WorkspaceCreator", fields: [createdById], references: [id])
-  milesProgramRates Json?
+  milesProgramRates               Json?
+  variableIncomeContributedAmount Float?
 
   members             WorkspaceUser[]
   invites             WorkspaceInvite[]

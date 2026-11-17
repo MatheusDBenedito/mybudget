@@ -14,6 +14,11 @@ import { BillsCard } from "@/components/dashboard/BillsCard";
 import { CardsCard, type DashCreditCard } from "@/components/dashboard/CardsCard";
 import { MoneyWhereCard, type DashAccount } from "@/components/dashboard/MoneyWhereCard";
 import { YieldsProjectionCard, type InvestmentsProjectionData } from "@/components/dashboard/YieldsProjectionCard";
+import { InvestmentsDailyGainChart } from "@/components/investments/InvestmentsDailyGainChart";
+import { InvestmentsBenchmarkChart } from "@/components/investments/InvestmentsBenchmarkChart";
+import { VariableIncomeComparisonCard } from "@/components/investments/VariableIncomeComparisonCard";
+import type { AnalyticsRange, InvestmentsAnalyticsResponse } from "@/components/investments/analytics-types";
+import { type ApiInvestmentDividend, enrichDividendsWithStatus } from "@/lib/investments-dividends";
 import { type ApiInvestment, INVESTMENT_CLASSES, CLASS_ORDER, currentValueOf, grossValueOf, taxAmountOf } from "@/lib/investments";
 import { CHART_PALETTE } from "@/lib/charts";
 import type { CashFlowData } from "@/lib/cash-flow";
@@ -45,6 +50,11 @@ export default function DashboardPage() {
   const [cards, setCards] = useState<DashCreditCard[]>([]);
   const [cashFlow, setCashFlow] = useState<CashFlowData | null>(null);
   const [projections, setProjections] = useState<InvestmentsProjectionData | null>(null);
+  const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>("90d");
+  const [analytics, setAnalytics] = useState<InvestmentsAnalyticsResponse | null>(null);
+  const analyticsLoading = analytics === null || analytics.range !== analyticsRange;
+  const [dividends, setDividends] = useState<ApiInvestmentDividend[]>([]);
+  const [contributedAmount, setContributedAmount] = useState<number>(11038.42);
   const [reloadKey, setReloadKey] = useState(0);
   const { hasPermission, hasAnyPermission } = useAuth();
   const canEditResumo = hasPermission("edit:resumo_layout");
@@ -85,9 +95,27 @@ export default function DashboardPage() {
       get("/accounts", setAccounts),
       get("/investments", setInvestments),
       get("/credit-cards", setCards),
+      get<{ dividends: ApiInvestmentDividend[] }>("/investments/dividends", d => setDividends(d.dividends ?? [])),
+      get<{ variableIncomeContributedAmount: number | null }>("/investments/settings", s => {
+        if (s?.variableIncomeContributedAmount != null) setContributedAmount(s.variableIncomeContributedAmount);
+      }),
     ]);
     return () => { cancelled = true; };
   }, [month, year, reloadKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/investments/analytics?range=${analyticsRange}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => { if (data && !cancelled) setAnalytics(data); })
+      .catch(err => console.error("Failed to load analytics", err));
+    return () => { cancelled = true; };
+  }, [analyticsRange, reloadKey]);
+
+  const receivedDividendsBrl = useMemo(
+    () => enrichDividendsWithStatus(dividends).filter(d => d.status === "PAID").reduce((acc, d) => acc + d.totalBrl, 0),
+    [dividends],
+  );
 
   const monthRef = { year, month };
   const days = useMemo(() => billsByDay(transactions, cards, cashFlow, { year, month }), [transactions, cards, cashFlow, year, month]);
@@ -118,6 +146,12 @@ export default function DashboardPage() {
         return <CardsCard key={`${year}-${month}`} cards={orderedCards} data={cashFlow} height={item.height} />;
       case "yields-projection":
         return <YieldsProjectionCard projection={projections} height={item.height} />;
+      case "investments-daily-gain":
+        return <InvestmentsDailyGainChart data={analytics} range={analyticsRange} onRangeChange={setAnalyticsRange} isLoading={analyticsLoading} height={item.height} className="h-full rounded-2xl" />;
+      case "investments-benchmarks":
+        return <InvestmentsBenchmarkChart data={analytics} range={analyticsRange} onRangeChange={setAnalyticsRange} isLoading={analyticsLoading} height={item.height} className="h-full rounded-2xl" />;
+      case "variable-income-comparison":
+        return <VariableIncomeComparisonCard investments={investments} receivedDividendsBrl={receivedDividendsBrl} contributedAmount={contributedAmount} onContributedAmountSaved={setContributedAmount} height={item.height} className="h-full rounded-2xl" />;
       case "cashflow-chart":
         return (
           <Panel
