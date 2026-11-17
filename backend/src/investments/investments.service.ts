@@ -565,6 +565,9 @@ export class InvestmentsService {
             if (missing.length === 0) return;
         }
 
+        // Ensure USD->BRL rate is resolved before converting Binance USD prices to BRL
+        // (avoids race condition with parallel fetchUsdRate() on serverless cold starts)
+        await this.fetchUsdRate();
         const usdRate = this.usdRate ?? 5.64;
 
         // 1. Try Binance first for exact Spot USDT prices (e.g. 1MBABYDOGEUSDT, 1000SATSUSDT, BNBUSDT, SOLUSDT)
