@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   compareAmortizeVsInvest,
   computeFgtsEligibility,
+  computeRemainingMonths,
   simulateAmortization,
 } from './financing-calculator';
 import {
@@ -222,6 +223,9 @@ export class FinancingsService {
     const paidInstallments = financing.installments.filter(
       (inst) => inst.status === 'PAID'
     );
+    const pendingInstallmentsCount = financing.installments.filter(
+      (inst) => inst.status === 'PENDING'
+    ).length;
 
     const installmentPrincipalPaid = paidInstallments.reduce(
       (sum, inst) => sum + inst.principalAmount,
@@ -244,19 +248,16 @@ export class FinancingsService {
       (sum, extra) => sum + extra.amount,
       0
     );
-    const totalMonthsReducedByExtra = financing.extraAmortizations.reduce(
-      (sum, extra) => sum + (extra.installmentsReduced ?? 0),
-      0
-    );
-
-    const paidMonthsCount = paidInstallments.filter(
-      (i) => (i.installmentNumber ?? 0) > 0
-    ).length;
-
-    const remainingMonths = Math.max(
-      0,
-      financing.totalMonths - paidMonthsCount - totalMonthsReducedByExtra
-    );
+    const {
+      paidMonthsCount,
+      monthsReducedByExtra: totalMonthsReducedByExtra,
+      remainingMonths,
+    } = computeRemainingMonths({
+      totalMonths: financing.totalMonths,
+      paidInstallments,
+      pendingInstallmentsCount,
+      extraAmortizations: financing.extraAmortizations,
+    });
 
     const realAmortizationPaid =
       installmentPrincipalPaid + totalExtraAmortized > 0

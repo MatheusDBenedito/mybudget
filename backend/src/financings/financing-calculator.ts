@@ -396,3 +396,63 @@ export function computeFgtsEligibility(lastUsageDate: Date | string | null | und
       : `Disponível em ${nextEligible.toLocaleDateString('pt-BR', { timeZone: 'UTC' })} (${remainingDays} dias restantes)`,
   };
 }
+
+/**
+ * Computes remaining financing months without double-counting extra amortizations
+ * that occurred on or before the latest paid installment when the imported statement's
+ * `totalMonths` and pending schedule already reflect that reduced term.
+ */
+export function computeRemainingMonths(params: {
+  totalMonths: number;
+  paidInstallments: Array<{ installmentNumber: number | null; dueDate: Date }>;
+  pendingInstallmentsCount: number;
+  extraAmortizations: Array<{ date: Date; installmentsReduced: number | null }>;
+}): {
+  paidMonthsCount: number;
+  monthsReducedByExtra: number;
+  remainingMonths: number;
+} {
+  const numberedPaid = params.paidInstallments.filter(
+    (i) => (i.installmentNumber ?? 0) > 0
+  );
+  const paidMonthsCount = numberedPaid.length;
+
+  const latestPaidTime = numberedPaid.reduce<number | null>((max, inst) => {
+    const t = new Date(inst.dueDate).getTime();
+    return max === null || t > max ? t : max;
+  }, null);
+
+  const scheduleAlreadyReflectsTerm =
+    params.pendingInstallmentsCount > 0 &&
+    params.pendingInstallmentsCount === Math.max(0, params.totalMonths - paidMonthsCount);
+
+  let totalMonthsReducedByExtra = 0;
+  let unappliedMonthsReduced = 0;
+  for (const extra of params.extraAmortizations) {
+    const reduced = extra.installmentsReduced ?? 0;
+    if (reduced <= 0) continue;
+
+    totalMonthsReducedByExtra += reduced;
+
+    const extraTime = new Date(extra.date).getTime();
+    const alreadyInStatement =
+      scheduleAlreadyReflectsTerm &&
+      latestPaidTime !== null &&
+      extraTime <= latestPaidTime;
+
+    if (!alreadyInStatement) {
+      unappliedMonthsReduced += reduced;
+    }
+  }
+
+  const remainingMonths = Math.max(
+    0,
+    params.totalMonths - paidMonthsCount - unappliedMonthsReduced
+  );
+
+  return {
+    paidMonthsCount,
+    monthsReducedByExtra: totalMonthsReducedByExtra,
+    remainingMonths,
+  };
+}

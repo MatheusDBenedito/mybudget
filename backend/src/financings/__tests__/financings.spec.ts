@@ -1,6 +1,7 @@
 import {
   compareAmortizeVsInvest,
   computeFgtsEligibility,
+  computeRemainingMonths,
   simulateAmortization,
 } from '../financing-calculator';
 import {
@@ -116,6 +117,50 @@ describe('financing-calculator', () => {
     const neverUsed = computeFgtsEligibility(null, now);
     expect(neverUsed.canUse).toBe(true);
     expect(neverUsed.lastUsageDate).toBeNull();
+  });
+
+  it('does not double-subtract extra amortizations already reflected in imported totalMonths', () => {
+    const paidInstallments = [
+      { installmentNumber: 0, dueDate: new Date('2023-10-02T12:00:00Z') },
+      ...Array.from({ length: 38 }, (_, idx) => ({
+        installmentNumber: idx + 1,
+        dueDate: new Date(Date.UTC(2023, 10 + idx, 2, 12, 0, 0)),
+      })),
+    ];
+
+    const result = computeRemainingMonths({
+      totalMonths: 333,
+      paidInstallments,
+      pendingInstallmentsCount: 295,
+      extraAmortizations: [
+        { date: new Date('2025-10-28T12:00:00Z'), installmentsReduced: 27 },
+      ],
+    });
+
+    expect(result.paidMonthsCount).toBe(38);
+    expect(result.monthsReducedByExtra).toBe(27);
+    expect(result.remainingMonths).toBe(295);
+  });
+
+  it('subtracts new extra amortizations dated after the latest paid installment', () => {
+    const paidInstallments = [
+      { installmentNumber: 1, dueDate: new Date('2026-10-02T12:00:00Z') },
+      { installmentNumber: 2, dueDate: new Date('2026-11-02T12:00:00Z') },
+    ];
+
+    const result = computeRemainingMonths({
+      totalMonths: 333,
+      paidInstallments,
+      pendingInstallmentsCount: 331,
+      extraAmortizations: [
+        { date: new Date('2025-10-28T12:00:00Z'), installmentsReduced: 27 },
+        { date: new Date('2026-11-15T12:00:00Z'), installmentsReduced: 10 },
+      ],
+    });
+
+    expect(result.paidMonthsCount).toBe(2);
+    expect(result.monthsReducedByExtra).toBe(37);
+    expect(result.remainingMonths).toBe(321);
   });
 });
 
