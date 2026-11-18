@@ -246,6 +246,18 @@ export async function ensureRbacCatalog(prisma: PrismaClient) {
  * any legacy rows created before multi-tenancy (`workspaceId IS NULL`) into that workspace.
  */
 export async function ensureBootstrapWorkspace(prisma: PrismaClient) {
+    // On serverless cold starts (Vercel), skip the heavy RBAC catalog upsert + backfill
+    // once the database already has a bootstrapped Super Admin and default workspace.
+    if (process.env.VERCEL && process.env.FORCE_BOOTSTRAP !== 'true') {
+        const existingAdmin = await prisma.user.findFirst({
+            where: { isSuperAdmin: true, defaultWorkspaceId: { not: null } },
+            select: { id: true },
+        });
+        if (existingAdmin) {
+            return;
+        }
+    }
+
     const { roleMap, planMap } = await ensureRbacCatalog(prisma);
     const ownerRoleId = roleMap.get('OWNER')!;
     const completoPlanId = planMap.get('COMPLETO')!;
