@@ -154,6 +154,12 @@ export class InvestmentsService {
         } else {
             data.investmentDate = new Date(); // default to today if missing
         }
+        if (data.type === 'FIXED_INCOME' && !data.maturityDate) {
+            throw new BadRequestException('Data de vencimento é obrigatória para Renda Fixa');
+        }
+        if (data.maturityDate) {
+            data.maturityDate = new Date(data.maturityDate);
+        }
         const created = await this.prisma.investment.create({
             data,
             include: {
@@ -274,6 +280,19 @@ export class InvestmentsService {
         }
         if (data.investmentDate) {
             data.investmentDate = new Date(data.investmentDate);
+        }
+        const effectiveType = data.type ?? existing.type;
+        if (data.maturityDate !== undefined) {
+            if (!data.maturityDate) {
+                if (effectiveType === 'FIXED_INCOME') {
+                    throw new BadRequestException('Data de vencimento é obrigatória para Renda Fixa');
+                }
+                data.maturityDate = null;
+            } else {
+                data.maturityDate = new Date(data.maturityDate);
+            }
+        } else if (data.type === 'FIXED_INCOME' && existing.type !== 'FIXED_INCOME' && !existing.maturityDate) {
+            throw new BadRequestException('Data de vencimento é obrigatória para Renda Fixa');
         }
         // Partial updates must still recompute the BRL cost from the merged values
         this.applyUsStockInvestedAmount(data, existing);

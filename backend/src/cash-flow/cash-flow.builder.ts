@@ -1,4 +1,5 @@
 // Pure aggregation for the cash-flow spreadsheet. No Prisma/Nest here so it can be unit tested directly.
+import { irRateForCalendarDays } from '../investments/projections/investments-projection.calculator';
 
 export type CashFlowTxInput = {
     description: string;
@@ -32,12 +33,21 @@ export type CashFlowPassiveIncomeInput = {
     fixedIncomeNetYield: number;
 };
 
+export type CashFlowCdbIrTaxInput = {
+    id: string;
+    name: string;
+    maturityDate: string; // YYYY-MM-DD
+    amount: number;
+    open: boolean;
+};
+
 export type CashFlowMonthInput = {
     year: number;
     month: number; // 1-12
     transactions: CashFlowTxInput[];
     cards: CashFlowCardInput[];
     passiveIncome?: CashFlowPassiveIncomeInput;
+    cdbIrTaxes?: CashFlowCdbIrTaxInput[];
 };
 
 export type CashFlowSectionKey = 'INCOME' | 'FIXED' | 'CARDS' | 'VARIABLE';
@@ -119,9 +129,21 @@ export function isCardInvoiceOpen(m: CashFlowMonthInput, card: CashFlowCardInput
 const passiveTotal = (p?: CashFlowPassiveIncomeInput): number =>
     p ? Math.max(0, p.scheduledDividends) + Math.max(0, p.projectedFiiDividends) + Math.max(0, p.fixedIncomeNetYield) : 0;
 
+const cdbIrTotal = (list?: CashFlowCdbIrTaxInput[]): number =>
+    list ? list.reduce((sum, item) => sum + Math.max(0, item.amount), 0) : 0;
+
+const cdbIrOpenTotal = (list?: CashFlowCdbIrTaxInput[]): number =>
+    list ? list.reduce((sum, item) => sum + (item.open ? Math.max(0, item.amount) : 0), 0) : 0;
+
+const formatShortBrDate = (ymd: string): string => {
+    const [y, m, d] = ymd.split('-');
+    if (!y || !m || !d) return ymd;
+    return `${d}/${m}/${y.slice(-2)}`;
+};
+
 /** Income minus every expense of the month (fixed, variable and card invoices), regardless of status. */
 export function monthNet(m: CashFlowMonthInput): number {
-    let net = passiveTotal(m.passiveIncome);
+    let net = passiveTotal(m.passiveIncome) - cdbIrTotal(m.cdbIrTaxes);
     for (const tx of m.transactions) {
         if (!isActive(tx)) continue;
         net += tx.type === 'INCOME' ? tx.amount : -tx.amount;
@@ -132,11 +154,13 @@ export function monthNet(m: CashFlowMonthInput): number {
 
 /**
  * What still has to happen in a month: pending transactions (paid ones are already in the account
- * balance), projected passive income from the current month onward, and card invoices not yet due.
+ * balance), projected passive income from the current month onward, CDB IR maturities, and card invoices not yet due.
  */
 export function openNet(m: CashFlowMonthInput, today: Date): number {
     const currentIdx = monthIndex(today.getFullYear(), today.getMonth() + 1);
-    let net = monthIndex(m.year, m.month) >= currentIdx ? passiveTotal(m.passiveIncome) : 0;
+    let net = monthIndex(m.year, m.month) >= currentIdx
+        ? passiveTotal(m.passiveIncome) - cdbIrOpenTotal(m.cdbIrTaxes)
+        : 0;
     for (const tx of m.transactions) {
         if (!isActive(tx) || tx.status !== 'PENDING') continue;
         net += tx.type === 'INCOME' ? tx.amount : -tx.amount;
@@ -248,12 +272,37 @@ export function buildCashFlow({ months, leadIn = [], openingBalance, today }: Bu
         });
     }
 
+    const variableRows = groupRows(months, m => txRows(m, tx => tx.type === 'EXPENSE' && !tx.isFixed));
+    const hasCdbIr = months.some(m => cdbIrTotal(m.cdbIrTaxes) > 0);
+    if (hasCdbIr) {
+        const subRows = groupRows(months, m =>
+            (m.cdbIrTaxes ?? [])
+                .filter(t => t.amount > 0)
+                .map(t => ({
+                    key: `cdb-ir:${t.id}`,
+                    label: `${t.name} (venc. ${formatShortBrDate(t.maturityDate)})`,
+                    amount: t.amount,
+                    open: t.open,
+                })),
+        );
+        const values = months.map((_, i) => round(subRows.reduce((s, r) => s + r.values[i], 0)));
+        const open = months.map((_, i) => round(subRows.reduce((s, r) => s + r.open[i], 0)));
+        variableRows.push({
+            key: 'cdb-ir-maturity',
+            label: 'IR CDBs (vencimentos)',
+            values,
+            open,
+            total: round(values.reduce((a, b) => a + b, 0)),
+            subRows,
+        });
+    }
+
     const sectionRows: Record<CashFlowSectionKey, CashFlowRow[]> = {
         INCOME: incomeRows,
         FIXED: groupRows(months, m => txRows(m, tx => tx.type === 'EXPENSE' && tx.isFixed)),
         // Card rows are listed even when empty so every card shows up in the sheet
         CARDS: cardRows,
-        VARIABLE: groupRows(months, m => txRows(m, tx => tx.type === 'EXPENSE' && !tx.isFixed)),
+        VARIABLE: variableRows,
     };
 
     const sections: CashFlowSection[] = (Object.keys(sectionRows) as CashFlowSectionKey[]).map(key => ({
@@ -296,4 +345,75 @@ export function buildCashFlow({ months, leadIn = [], openingBalance, today }: Bu
         sections,
         summary: { income, expenses, net, openIncome, openExpenses, openNet: openNetByMonth, projectedBalance },
     };
+}
+
+export type CdbMaturityIrInvestmentInput = {
+    id: string;
+    name: string;
+    type: string;
+    investedAmount: number;
+    grossValue?: number | null;
+    currentValue?: number | null;
+    investmentDate?: Date | string | null;
+    maturityDate?: Date | string | null;
+};
+
+/**
+ * Computes IR due at maturity on accumulated profit up to `today` for each FIXED_INCOME
+ * investment with a `maturityDate` in the current month or future.
+ * Future months' yields already enter Cash Flow net of IR via `Retorno líquido de Renda Fixa`.
+ */
+export function computeCdbMaturityIrByMonth(
+    investments: CdbMaturityIrInvestmentInput[],
+    today: Date,
+): Map<string, CashFlowCdbIrTaxInput[]> {
+    const byMonth = new Map<string, CashFlowCdbIrTaxInput[]>();
+    const currentIdx = monthIndex(today.getFullYear(), today.getMonth() + 1);
+    const todayLocal = startOfDay(today);
+    const msPerDay = 1000 * 60 * 60 * 24;
+
+    for (const inv of investments) {
+        if (inv.type !== 'FIXED_INCOME' || !inv.maturityDate) continue;
+        const maturity = new Date(inv.maturityDate);
+        if (Number.isNaN(maturity.getTime())) continue;
+
+        const matYear = maturity.getUTCFullYear();
+        const matMonth = maturity.getUTCMonth() + 1;
+        const matDay = maturity.getUTCDate();
+        if (monthIndex(matYear, matMonth) < currentIdx) continue;
+
+        const grossToday = Number(inv.grossValue ?? inv.currentValue ?? 0);
+        const accumulatedProfitToday = Math.max(0, grossToday - Number(inv.investedAmount ?? 0));
+        if (accumulatedProfitToday <= 0) continue;
+
+        const startDate = inv.investmentDate ? new Date(inv.investmentDate) : today;
+        const matUtcNoon = Date.UTC(matYear, matMonth - 1, matDay, 12, 0, 0);
+        const startUtcNoon = Date.UTC(
+            startDate.getUTCFullYear(),
+            startDate.getUTCMonth(),
+            startDate.getUTCDate(),
+            12,
+            0,
+            0,
+        );
+        const calendarDaysAtMaturity = Math.max(1, Math.floor((matUtcNoon - startUtcNoon) / msPerDay));
+        const irRate = irRateForCalendarDays(calendarDaysAtMaturity);
+        const amount = round(accumulatedProfitToday * irRate);
+        if (amount <= 0) continue;
+
+        const maturityLocal = new Date(matYear, matMonth - 1, matDay).getTime();
+        const ymd = `${matYear}-${String(matMonth).padStart(2, '0')}-${String(matDay).padStart(2, '0')}`;
+        const key = `${matYear}-${matMonth}`;
+        const list = byMonth.get(key) ?? [];
+        list.push({
+            id: inv.id,
+            name: inv.name,
+            maturityDate: ymd,
+            amount,
+            open: maturityLocal >= todayLocal,
+        });
+        byMonth.set(key, list);
+    }
+
+    return byMonth;
 }

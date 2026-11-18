@@ -15,6 +15,7 @@ export type ProjectionInvestmentInput = {
     currentValue: number;
     grossValue?: number | null;
     investmentDate?: Date | string | null;
+    maturityDate?: Date | string | null;
     cdiPercentage?: number | null;
 };
 
@@ -127,6 +128,40 @@ function getMonthBusinessDaysInfo(year: number, month: number, today: Date): {
         return { total, elapsed, remaining };
     }
     return { total, elapsed: 0, remaining: total };
+}
+
+function parseUtcDateToLocal(value: Date | string): Date | null {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return new Date(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate());
+}
+
+function getLotBusinessDaysRemainingInMonth(
+    year: number,
+    month: number,
+    today: Date,
+    maturityDate?: Date | string | null,
+): number {
+    const base = getMonthBusinessDaysInfo(year, month, today).remaining;
+    if (!maturityDate || base <= 0) return base;
+
+    const maturityLocal = parseUtcDateToLocal(maturityDate);
+    if (!maturityLocal) return base;
+
+    const prevMonthEnd = new Date(year, month - 1, 0);
+    const monthEnd = new Date(year, month, 0);
+    const effectiveEnd = maturityLocal < monthEnd ? maturityLocal : monthEnd;
+
+    const mIdx = monthIndex(year, month);
+    const currentIdx = monthIndex(today.getFullYear(), today.getMonth() + 1);
+    if (mIdx < currentIdx) return 0;
+
+    if (mIdx === currentIdx) {
+        const todayLocal = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        return effectiveEnd > todayLocal ? countBusinessDays(todayLocal, effectiveEnd) : 0;
+    }
+
+    return effectiveEnd > prevMonthEnd ? countBusinessDays(prevMonthEnd, effectiveEnd) : 0;
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
@@ -402,27 +437,44 @@ export function calculateInvestmentsProjection({
         const startDate = lot.investmentDate ? new Date(lot.investmentDate) : today;
 
         // If the window starts after the current month, advance runningGross through the lead-in months
-        // using only the remaining business days in each lead-in month
+        // using only the remaining business days in each lead-in month (capped by maturityDate)
         for (let idx = currentIdx; idx < startIdx; idx++) {
             const leadMonth = fromIndex(idx);
-            const leadDays = getMonthBusinessDaysInfo(leadMonth.year, leadMonth.month, today);
-            if (leadDays.remaining > 0) {
-                runningGross = runningGross * Math.pow(1 + dailyRate, leadDays.remaining);
+            const leadDays = getLotBusinessDaysRemainingInMonth(
+                leadMonth.year,
+                leadMonth.month,
+                today,
+                lot.maturityDate,
+            );
+            if (leadDays > 0) {
+                runningGross = runningGross * Math.pow(1 + dailyRate, leadDays);
             }
         }
 
+        const maturityUtc = lot.maturityDate ? new Date(lot.maturityDate) : null;
+        const hasValidMaturity = maturityUtc !== null && !Number.isNaN(maturityUtc.getTime());
+
         for (const m of months) {
             const mIdx = monthIndex(m.year, m.month);
-            if (mIdx < currentIdx || m.businessDaysRemaining <= 0) continue;
+            if (mIdx < currentIdx) continue;
 
-            const monthlyFactor = Math.pow(1 + dailyRate, m.businessDaysRemaining);
+            const lotDaysRemaining = getLotBusinessDaysRemainingInMonth(
+                m.year,
+                m.month,
+                today,
+                lot.maturityDate,
+            );
+            if (lotDaysRemaining <= 0) continue;
+
+            const monthlyFactor = Math.pow(1 + dailyRate, lotDaysRemaining);
             const nextGross = runningGross * monthlyFactor;
             const grossGain = nextGross - runningGross;
             runningGross = nextGross;
 
-            // End of month m for IR bracket calculation
+            // End of month m (or maturityDate if earlier) for IR bracket calculation
             const monthEnd = new Date(Date.UTC(m.year, m.month, 0, 12, 0, 0));
-            const calendarDays = Math.max(1, Math.floor((monthEnd.getTime() - startDate.getTime()) / msPerDay));
+            const bracketRefDate = hasValidMaturity && maturityUtc! < monthEnd ? maturityUtc! : monthEnd;
+            const calendarDays = Math.max(1, Math.floor((bracketRefDate.getTime() - startDate.getTime()) / msPerDay));
             const irRate = irRateForCalendarDays(calendarDays);
             const tax = grossGain * irRate;
             const netGain = grossGain - tax;

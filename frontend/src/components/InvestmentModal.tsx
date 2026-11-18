@@ -42,6 +42,7 @@ const investmentSchema = z.object({
     currentValue: z.number().min(0, "O valor não pode ser negativo."),
     cdiPercentage: z.number().optional(),
     investmentDate: z.string().optional(),
+    maturityDate: z.string().optional(),
     // Variable income fields
     sector: z.string().optional(),
     tickerCode: z.string().optional(),
@@ -57,6 +58,13 @@ const investmentSchema = z.object({
                 code: z.ZodIssueCode.custom,
                 message: "A data de aplicação é obrigatória para Renda Fixa.",
                 path: ["investmentDate"],
+            });
+        }
+        if (!data.maturityDate) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "A data de vencimento é obrigatória para Renda Fixa.",
+                path: ["maturityDate"],
             });
         }
         if (!data.cdiPercentage || data.cdiPercentage <= 0) {
@@ -138,6 +146,7 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
             currentValue: 0,
             cdiPercentage: 100,
             investmentDate: new Date().toISOString().split('T')[0],
+            maturityDate: "",
             sector: "",
             tickerCode: "",
             averagePrice: 0,
@@ -185,6 +194,7 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
                 currentValue: investmentToEdit.currentValue,
                 cdiPercentage: investmentToEdit.cdiPercentage || 100,
                 investmentDate: investmentToEdit.investmentDate ? new Date(investmentToEdit.investmentDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                maturityDate: (investmentToEdit as { maturityDate?: string | null }).maturityDate ? new Date((investmentToEdit as { maturityDate?: string }).maturityDate!).toISOString().split('T')[0] : "",
                 sector: investmentToEdit.sector || "",
                 tickerCode: investmentToEdit.tickerCode || "",
                 averagePrice: isCryptoUsd
@@ -208,6 +218,7 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
                 currentValue: 0,
                 cdiPercentage: prefillAsset.cdiPercentage || 100,
                 investmentDate: new Date().toISOString().split('T')[0],
+                maturityDate: "",
                 sector: prefillAsset.sector || "",
                 tickerCode: prefillAsset.tickerCode || "",
                 averagePrice: 0,
@@ -225,6 +236,7 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
                 currentValue: 0,
                 cdiPercentage: 100,
                 investmentDate: new Date().toISOString().split('T')[0],
+                maturityDate: "",
                 sector: "",
                 tickerCode: "",
                 averagePrice: 0,
@@ -274,6 +286,9 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
 
             if (data.type === "FIXED_INCOME") {
                 bodyData.cdiPercentage = Number(data.cdiPercentage);
+                if (data.maturityDate) {
+                    bodyData.maturityDate = new Date(`${data.maturityDate}T12:00:00.000Z`).toISOString();
+                }
             }
 
             if (data.type === "VARIABLE_INCOME" || data.type === "FII") {
@@ -455,19 +470,34 @@ export function InvestmentModal({ children, investmentToEdit, prefillAsset, open
                                         )}
                                     />
                                 </div>
-                                <FormField
-                                    control={form.control}
-                                    name="investmentDate"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Data de Aplicação</FormLabel>
-                                            <FormControl>
-                                                <Input type="date" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <FormField
+                                        control={form.control}
+                                        name="investmentDate"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Data de Aplicação</FormLabel>
+                                                <FormControl>
+                                                    <Input type="date" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="maturityDate"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Data de Vencimento</FormLabel>
+                                                <FormControl>
+                                                    <Input type="date" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
                             </>
                         )}
 

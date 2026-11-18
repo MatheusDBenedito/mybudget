@@ -1,4 +1,4 @@
-import { buildCashFlow, CashFlowMonthInput, CashFlowTxInput, isCardInvoiceOpen, monthNet, openNet } from '../cash-flow.builder';
+import { buildCashFlow, CashFlowMonthInput, CashFlowTxInput, computeCdbMaturityIrByMonth, isCardInvoiceOpen, monthNet, openNet } from '../cash-flow.builder';
 
 const tx = (over: Partial<CashFlowTxInput>): CashFlowTxInput => ({
     description: 'Item',
@@ -279,6 +279,57 @@ describe('cash-flow builder', () => {
                 open: [0, 250],
                 total: 500,
             });
+        });
+
+        it('computes CDB IR at maturity using regressive rate and subtracts it from projectedBalance in maturity month', () => {
+            const refToday = new Date(2026, 10, 18, 12, 0, 0); // 18/11/2026
+            const byMonth = computeCdbMaturityIrByMonth([
+                {
+                    id: 'cdb-1',
+                    name: 'CDB Banco X',
+                    type: 'FIXED_INCOME',
+                    investedAmount: 10000,
+                    grossValue: 12000, // 2000 accumulated profit
+                    investmentDate: '2024-01-01T12:00:00.000Z',
+                    maturityDate: '2026-12-20T12:00:00.000Z', // > 720 days -> 15% IR => 300.00
+                },
+                {
+                    id: 'cdb-2',
+                    name: 'CDB Curto',
+                    type: 'FIXED_INCOME',
+                    investedAmount: 5000,
+                    grossValue: 5500, // 500 accumulated profit
+                    investmentDate: '2026-08-01T12:00:00.000Z',
+                    maturityDate: '2026-12-10T12:00:00.000Z', // <= 180 days -> 22.5% IR => 112.50
+                },
+            ], refToday);
+
+            const decTaxes = byMonth.get('2026-12')!;
+            expect(decTaxes).toHaveLength(2);
+            expect(decTaxes[0].amount).toBe(300);
+            expect(decTaxes[1].amount).toBe(112.5);
+
+            const result = buildCashFlow({
+                months: [
+                    { year: 2026, month: 11, transactions: [], cards: [] },
+                    { year: 2026, month: 12, transactions: [], cards: [], cdbIrTaxes: decTaxes },
+                    { year: 2027, month: 1, transactions: [], cards: [] },
+                ],
+                openingBalance: 17500,
+                today: refToday,
+            });
+
+            const variable = result.sections.find(s => s.key === 'VARIABLE')!;
+            const irRow = variable.rows.find(r => r.key === 'cdb-ir-maturity')!;
+            expect(irRow.label).toBe('IR CDBs (vencimentos)');
+            expect(irRow.values).toEqual([0, 412.5, 0]);
+            expect(irRow.open).toEqual([0, 412.5, 0]);
+            expect(irRow.subRows?.map(r => [r.label, r.values])).toEqual([
+                ['CDB Banco X (venc. 20/12/26)', [0, 300, 0]],
+                ['CDB Curto (venc. 10/12/26)', [0, 112.5, 0]],
+            ]);
+            expect(result.summary.openExpenses).toEqual([0, 412.5, 0]);
+            expect(result.summary.projectedBalance).toEqual([17500, 17087.5, 17087.5]);
         });
     });
 });

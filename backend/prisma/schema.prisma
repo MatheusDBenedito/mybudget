@@ -389,6 +389,7 @@ model Investment {
   currentValue   Float          // For manual tracking overriding simulation, default behavior uses this.
   
   investmentDate DateTime?      // Date the investment started (essential for CDB tax)
+  maturityDate   DateTime?      // Maturity date for fixed income (CDB)
   cdiPercentage  Float?         // % of CDI rate for fixed income calculations
 
   // Variable income fields

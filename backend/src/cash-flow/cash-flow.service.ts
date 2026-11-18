@@ -4,7 +4,12 @@ import { AccountsService } from '../accounts/accounts.service';
 import { InvestmentsService } from '../investments/investments.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { CardTransactionsService } from '../card-transactions/card-transactions.service';
-import { buildCashFlow, CashFlowMonthInput, CashFlowResult } from './cash-flow.builder';
+import {
+    buildCashFlow,
+    CashFlowMonthInput,
+    CashFlowResult,
+    computeCdbMaturityIrByMonth,
+} from './cash-flow.builder';
 
 const monthIndex = (year: number, month: number) => year * 12 + (month - 1);
 const fromIndex = (index: number) => ({ year: Math.floor(index / 12), month: (index % 12) + 1 });
@@ -82,6 +87,20 @@ export class CashFlowService {
             });
         }
 
+        const cdbIrByMonth = computeCdbMaturityIrByMonth(
+            investments.map(inv => ({
+                id: inv.id,
+                name: inv.name,
+                type: inv.type,
+                investedAmount: inv.investedAmount,
+                grossValue: (inv as any).grossValue,
+                currentValue: inv.currentValue,
+                investmentDate: inv.investmentDate,
+                maturityDate: (inv as any).maturityDate,
+            })),
+            today,
+        );
+
         const loadMonth = async (index: number): Promise<CashFlowMonthInput> => {
             const m = fromIndex(index);
             const [transactions, invoices] = await Promise.all([
@@ -91,6 +110,7 @@ export class CashFlowService {
             return {
                 ...m,
                 passiveIncome: passiveByMonth.get(`${m.year}-${m.month}`),
+                cdbIrTaxes: cdbIrByMonth.get(`${m.year}-${m.month}`),
                 transactions: transactions.map(t => ({
                     description: t.description,
                     amount: t.amount,

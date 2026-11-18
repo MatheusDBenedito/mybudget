@@ -74,6 +74,7 @@ interface CashFlowSheetProps {
 export function CashFlowSheet({ data, highlight }: CashFlowSheetProps) {
     const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({
         "passive-income": true,
+        "cdb-ir-maturity": true,
     });
     const toggleCard = (key: string) => setExpandedCards(prev => ({ ...prev, [key]: !prev[key] }));
 
@@ -157,6 +158,8 @@ export function CashFlowSheet({ data, highlight }: CashFlowSheetProps) {
                                                                 <Link href="/cartoes" className="underline-offset-4 hover:underline">{row.label}</Link>
                                                             ) : row.key === "passive-income" ? (
                                                                 <Link href="/investimentos/proventos" className="font-medium underline-offset-4 hover:underline">{row.label}</Link>
+                                                            ) : row.key === "cdb-ir-maturity" ? (
+                                                                <Link href="/investimentos" className="font-medium underline-offset-4 hover:underline">{row.label}</Link>
                                                             ) : (
                                                                 row.label
                                                             )}

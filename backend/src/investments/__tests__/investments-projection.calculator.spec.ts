@@ -205,5 +205,37 @@ describe('calculateInvestmentsProjection', () => {
         expect(mxrfPay.toISOString().slice(0, 10)).toBe('2026-11-16');
         expect(hgbsPay.toISOString().slice(0, 10)).toBe('2026-11-16');
     });
+
+    it('stops accruing fixed-income yield after maturityDate', () => {
+        const refToday = new Date(2026, 10, 18, 12, 0, 0); // 18/11/2026
+        const investments = [
+            {
+                id: 'cdb-1',
+                name: 'CDB Banco X',
+                type: 'FIXED_INCOME',
+                investedAmount: 10000,
+                currentValue: 11000,
+                grossValue: 11000,
+                investmentDate: '2025-11-18T12:00:00.000Z',
+                maturityDate: '2026-12-15T12:00:00.000Z',
+                cdiPercentage: 100,
+            },
+        ];
+
+        const result = calculateInvestmentsProjection({
+            investments,
+            dividends: [],
+            startMonth: 11,
+            startYear: 2026,
+            monthsCount: 4,
+            today: refToday,
+        });
+
+        // Nov/2026 and Dec/2026 (up to Dec 15) accrue yield; Jan/2027 and Feb/2027 must be 0
+        expect(result.months[0].fixedIncomeNetYield).toBeGreaterThan(0);
+        expect(result.months[1].fixedIncomeNetYield).toBeGreaterThan(0);
+        expect(result.months[2].fixedIncomeNetYield).toBe(0);
+        expect(result.months[3].fixedIncomeNetYield).toBe(0);
+    });
 });
 

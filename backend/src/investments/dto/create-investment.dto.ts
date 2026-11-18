@@ -22,6 +22,10 @@ export class CreateInvestmentDto {
     investmentDate?: string;
 
     @IsOptional()
+    @IsDateString()
+    maturityDate?: string;
+
+    @IsOptional()
     @IsNumber()
     cdiPercentage?: number;
 
