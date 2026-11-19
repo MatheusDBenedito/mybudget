@@ -1291,6 +1291,18 @@ export class InvestmentsService {
         });
     }
 
+    async getCurrentCdiAnnualPct(): Promise<number> {
+        const now = new Date();
+        if (this.cdiCache.length === 0) {
+            const weekAgo = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
+            await this.fetchCdiRates(weekAgo, now);
+        }
+        const dailyRate = this.cdiCache.length > 0
+            ? this.cdiCache[this.cdiCache.length - 1].rate
+            : this.CDI_DIARIO_FALLBACK;
+        return Math.round(((Math.pow(1 + dailyRate, this.DIAS_UTEIS_ANO) - 1) * 100) * 100) / 100;
+    }
+
     async getSettings(workspaceId: string) {
         const ws = await this.prisma.workspace.findUnique({
             where: { id: workspaceId },

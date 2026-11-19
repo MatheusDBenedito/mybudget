@@ -23,6 +23,7 @@ import { DashboardLayoutModule } from './dashboard-layout/dashboard-layout.modul
 import { CardHoldersModule } from './card-holders/card-holders.module';
 import { OpenFinanceModule } from './open-finance/open-finance.module';
 import { FinancingsModule } from './financings/financings.module';
+import { InvestmentGoalsModule } from './investment-goals/investment-goals.module';
 
 @Module({
     imports: [
@@ -45,6 +46,7 @@ import { FinancingsModule } from './financings/financings.module';
         DashboardLayoutModule,
         OpenFinanceModule,
         FinancingsModule,
+        InvestmentGoalsModule,
     ],
     controllers: [AppController],
     providers: [

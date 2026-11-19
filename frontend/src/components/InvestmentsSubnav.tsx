@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Briefcase, HandCoins } from "lucide-react";
+import { Briefcase, HandCoins, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const SUBNAV_ITEMS = [
@@ -16,6 +16,12 @@ const SUBNAV_ITEMS = [
         href: "/investimentos/proventos",
         label: "Proventos",
         icon: HandCoins,
+        exact: false,
+    },
+    {
+        href: "/investimentos/metas",
+        label: "Metas",
+        icon: Target,
         exact: false,
     },
 ];

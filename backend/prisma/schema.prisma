@@ -137,9 +137,34 @@ model Workspace {
   dashboardLayouts       DashboardLayout[]
   openFinanceConnections OpenFinanceConnection[]
   financings             Financing[]
+  investmentGoals        InvestmentGoal[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model InvestmentGoal {
+  id                     String    @id @default(uuid())
+  workspaceId            String
+  workspace              Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name                   String
+  initialAmount          Float     @default(0)
+  usePortfolioAsInitial  Boolean   @default(false)
+  monthlySalary          Float
+  monthlyExpense         Float     @default(0)
+  emergencyReserveMonths Int       @default(6)
+  savingsRatePct         Float
+  cdiPercentage          Float     @default(100)
+  cdiAnnualRatePct       Float?
+  horizonMonths          Int       @default(120)
+  targetAmount           Float?
+  startMonth             Int?
+  startYear              Int?
+  notes                  String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([workspaceId])
 }
 
 model Role {
