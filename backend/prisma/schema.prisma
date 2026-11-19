@@ -68,17 +68,31 @@ model User {
   googleId           String?  @unique
   isActive           Boolean  @default(true)
   isSuperAdmin       Boolean  @default(false)
+  tokenVersion       Int      @default(0)
   defaultWorkspaceId String?
   planId             String?
   plan               Plan?    @relation(fields: [planId], references: [id])
 
-  memberships        WorkspaceUser[]
-  sentInvites        WorkspaceInvite[] @relation("InvitesSent")
-  createdWorkspaces  Workspace[]       @relation("WorkspaceCreator")
-  dashboardLayouts   DashboardLayout[]
+  memberships         WorkspaceUser[]
+  sentInvites         WorkspaceInvite[]    @relation("InvitesSent")
+  createdWorkspaces   Workspace[]          @relation("WorkspaceCreator")
+  dashboardLayouts    DashboardLayout[]
+  passwordResetTokens PasswordResetToken[]
 
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model Workspace {

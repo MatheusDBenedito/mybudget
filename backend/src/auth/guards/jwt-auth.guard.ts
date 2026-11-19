@@ -8,6 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthUserPayload, IS_PUBLIC_KEY } from '../decorators/permissions.decorator';
+import { isTokenVersionValid } from '../password-reset.helper';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -35,7 +36,7 @@ export class JwtAuthGuard implements CanActivate {
             throw new UnauthorizedException('Token de autenticação inválido.');
         }
 
-        let decoded: { sub: string; email: string };
+        let decoded: { sub: string; email: string; tv?: number };
         try {
             decoded = await this.jwtService.verifyAsync(token);
         } catch {
@@ -50,11 +51,16 @@ export class JwtAuthGuard implements CanActivate {
                 name: true,
                 isActive: true,
                 isSuperAdmin: true,
+                tokenVersion: true,
             },
         });
 
         if (!user || !user.isActive) {
             throw new UnauthorizedException('Usuário inativo ou não encontrado.');
+        }
+
+        if (!isTokenVersionValid(user.tokenVersion, decoded.tv)) {
+            throw new UnauthorizedException('Sessão expirada. Faça login novamente.');
         }
 
         req.user = {

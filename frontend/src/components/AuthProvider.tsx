@@ -39,7 +39,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const PUBLIC_ROUTES = ["/login", "/register"];
+const PUBLIC_ROUTES = ["/login", "/register", "/forgot-password", "/reset-password"];
 
 let fetchPatched = false;
 let unauthorizedHandler: (() => void) | null = null;
@@ -73,7 +73,10 @@ function ensureFetchPatched() {
     if (
       response.status === 401 &&
       !url.includes("/auth/login") &&
-      !url.includes("/auth/register")
+      !url.includes("/auth/register") &&
+      !url.includes("/auth/forgot-password") &&
+      !url.includes("/auth/reset-password") &&
+      !url.includes("/auth/change-password")
     ) {
       unauthorizedHandler?.();
     }

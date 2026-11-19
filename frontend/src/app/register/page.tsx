@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -18,13 +19,18 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim() || password.length < 6) {
-      toast.error("Preencha nome, e-mail e senha (mínimo 6 caracteres).");
+    if (!name.trim() || !email.trim() || password.length < 8) {
+      toast.error("Preencha nome, e-mail e senha (mínimo 8 caracteres).");
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast.error("As senhas informadas não conferem.");
       return;
     }
 
@@ -98,14 +104,26 @@ export default function RegisterPage() {
 
             <div className="space-y-2">
               <Label htmlFor="password">Senha</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
-                placeholder="Mínimo 6 caracteres"
+                placeholder="Mínimo 8 caracteres"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
-                minLength={6}
+                minLength={8}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirmar senha</Label>
+              <PasswordInput
+                id="confirmPassword"
+                placeholder="Repita sua senha"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+                minLength={8}
                 required
               />
             </div>

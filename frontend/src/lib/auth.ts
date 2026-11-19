@@ -90,7 +90,14 @@ export function canAccessRoute(
   user: AuthUser | null,
   activeWorkspace: WorkspaceSummary | null,
 ): boolean {
-  if (pathname === '/login' || pathname === '/register') return true;
+  if (
+    pathname === '/login' ||
+    pathname === '/register' ||
+    pathname === '/forgot-password' ||
+    pathname === '/reset-password'
+  ) {
+    return true;
+  }
   if (!user) return false;
   if (pathname.startsWith('/admin')) return user.isSuperAdmin;
   if (pathname.startsWith('/configuracoes')) return true;

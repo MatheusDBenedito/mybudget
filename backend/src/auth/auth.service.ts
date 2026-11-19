@@ -1,14 +1,30 @@
 import {
+    BadRequestException,
     ConflictException,
     Injectable,
+    Logger,
     OnModuleInit,
     UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { LoginDto, RegisterDto } from './dto/auth.dto';
+import {
+    ChangePasswordDto,
+    ForgotPasswordDto,
+    LoginDto,
+    RegisterDto,
+    ResetPasswordDto,
+} from './dto/auth.dto';
+import { MailService } from './mail.service';
 import { hashPassword, verifyPassword } from './password.util';
+import {
+    computeResetExpiry,
+    generateResetToken,
+    hashResetToken,
+    isResetTokenValid,
+    PASSWORD_RESET_TTL_MINUTES,
+} from './password-reset.helper';
 import { ensureBootstrapWorkspace, ensureRbacCatalog, filterPermissionsByPlan } from './rbac-catalog';
 import { seedDefaultWorkspaceData } from '../workspaces/default-workspace-seed';
 
@@ -22,9 +38,12 @@ const slugify = (text: string) =>
 
 @Injectable()
 export class AuthService implements OnModuleInit {
+    private readonly logger = new Logger(AuthService.name);
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly jwtService: JwtService,
+        private readonly mailService: MailService,
     ) {}
 
     async onModuleInit() {
@@ -33,13 +52,12 @@ export class AuthService implements OnModuleInit {
 
     async login(dto: LoginDto) {
         const identifier = dto.email.trim().toLowerCase();
+        const emailCandidates = identifier.includes('@')
+            ? [identifier]
+            : [identifier, `${identifier}@teste.com`];
         const user = await this.prisma.user.findFirst({
             where: {
-                OR: [
-                    { email: identifier },
-                    { name: { equals: dto.email.trim(), mode: 'insensitive' } },
-                    { email: identifier.includes('@') ? identifier.split('@')[0] : `${identifier}@teste.com` },
-                ],
+                email: { in: emailCandidates },
             },
         });
         if (
@@ -54,6 +72,7 @@ export class AuthService implements OnModuleInit {
         const accessToken = await this.jwtService.signAsync({
             sub: user.id,
             email: user.email,
+            tv: user.tokenVersion,
         });
 
         const profile = await this.getProfile(user.id);
@@ -116,6 +135,7 @@ export class AuthService implements OnModuleInit {
         const accessToken = await this.jwtService.signAsync({
             sub: result.user.id,
             email: result.user.email,
+            tv: result.user.tokenVersion,
         });
 
         const profile = await this.getProfile(result.user.id, result.workspace.id);
@@ -205,6 +225,128 @@ export class AuthService implements OnModuleInit {
             activeWorkspace,
             pendingInvitesCount,
         };
+    }
+
+    async forgotPassword(dto: ForgotPasswordDto) {
+        const genericResponse = {
+            message: 'Se o e-mail estiver cadastrado, enviaremos as instruções para redefinir sua senha.',
+        };
+        const email = dto.email.trim().toLowerCase();
+        const user = await this.prisma.user.findUnique({
+            where: { email },
+            select: { id: true, name: true, email: true, isActive: true },
+        });
+        if (!user || !user.isActive) {
+            return genericResponse;
+        }
+
+        const now = new Date();
+        const { rawToken, tokenHash } = generateResetToken();
+        const expiresAt = computeResetExpiry(now, PASSWORD_RESET_TTL_MINUTES);
+
+        await this.prisma.$transaction([
+            this.prisma.passwordResetToken.updateMany({
+                where: { userId: user.id, usedAt: null },
+                data: { usedAt: now },
+            }),
+            this.prisma.passwordResetToken.create({
+                data: {
+                    userId: user.id,
+                    tokenHash,
+                    expiresAt,
+                },
+            }),
+        ]);
+
+        const frontendOrigin = this.resolveFrontendOrigin();
+        const resetUrl = `${frontendOrigin}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+        try {
+            await this.mailService.sendPasswordResetEmail({
+                to: user.email,
+                name: user.name,
+                resetUrl,
+                ttlMinutes: PASSWORD_RESET_TTL_MINUTES,
+            });
+        } catch (err) {
+            this.logger.error(`Falha ao enviar e-mail de recuperação para ${user.email}`, err as Error);
+        }
+
+        return genericResponse;
+    }
+
+    async resetPassword(dto: ResetPasswordDto) {
+        const now = new Date();
+        const tokenHash = hashResetToken(dto.token);
+        const record = await this.prisma.passwordResetToken.findUnique({
+            where: { tokenHash },
+            include: {
+                user: { select: { id: true, isActive: true } },
+            },
+        });
+
+        if (!record || !record.user.isActive || !isResetTokenValid(record, now)) {
+            throw new BadRequestException('Link de recuperação inválido ou expirado.');
+        }
+
+        await this.prisma.$transaction([
+            this.prisma.user.update({
+                where: { id: record.userId },
+                data: {
+                    passwordHash: hashPassword(dto.newPassword),
+                    tokenVersion: { increment: 1 },
+                },
+            }),
+            this.prisma.passwordResetToken.updateMany({
+                where: { userId: record.userId, usedAt: null },
+                data: { usedAt: now },
+            }),
+        ]);
+
+        return { message: 'Senha redefinida com sucesso. Faça login com sua nova senha.' };
+    }
+
+    async changePassword(userId: string, dto: ChangePasswordDto) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, email: true, isActive: true, passwordHash: true },
+        });
+        if (!user || !user.isActive) {
+            throw new UnauthorizedException('Usuário inativo ou não encontrado.');
+        }
+        if (!user.passwordHash || !verifyPassword(dto.currentPassword, user.passwordHash)) {
+            throw new UnauthorizedException('Senha atual incorreta.');
+        }
+
+        const updated = await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                passwordHash: hashPassword(dto.newPassword),
+                tokenVersion: { increment: 1 },
+            },
+            select: { id: true, email: true, tokenVersion: true },
+        });
+
+        const accessToken = await this.jwtService.signAsync({
+            sub: updated.id,
+            email: updated.email,
+            tv: updated.tokenVersion,
+        });
+
+        return {
+            message: 'Senha alterada com sucesso.',
+            accessToken,
+        };
+    }
+
+    private resolveFrontendOrigin(): string {
+        const explicit = process.env.FRONTEND_URL?.split(',')[0]?.trim();
+        if (explicit) return explicit.replace(/\/+$/, '');
+        const vercelProd = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+        if (vercelProd) {
+            return (vercelProd.startsWith('http') ? vercelProd : `https://${vercelProd}`).replace(/\/+$/, '');
+        }
+        return 'http://localhost:3000';
     }
 }
 

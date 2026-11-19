@@ -1,9 +1,11 @@
 import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { WorkspaceRbacGuard } from './guards/workspace-rbac.guard';
+import { MailService } from './mail.service';
 
 function resolveJwtSecret(): string {
     const secret = process.env.JWT_SECRET?.trim();
@@ -21,6 +23,7 @@ function resolveJwtSecret(): string {
 @Global()
 @Module({
     imports: [
+        ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
         JwtModule.registerAsync({
             useFactory: () => ({
                 secret: resolveJwtSecret(),
@@ -29,7 +32,7 @@ function resolveJwtSecret(): string {
         }),
     ],
     controllers: [AuthController],
-    providers: [AuthService, JwtAuthGuard, WorkspaceRbacGuard],
-    exports: [AuthService, JwtModule, JwtAuthGuard, WorkspaceRbacGuard],
+    providers: [AuthService, MailService, JwtAuthGuard, WorkspaceRbacGuard],
+    exports: [AuthService, MailService, JwtModule, JwtAuthGuard, WorkspaceRbacGuard],
 })
 export class AuthModule {}

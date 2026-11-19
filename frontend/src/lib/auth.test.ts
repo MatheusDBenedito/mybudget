@@ -61,6 +61,8 @@ describe('auth helpers', () => {
 
   it('enforces route access by role and super admin flag', () => {
     assert.equal(canAccessRoute('/login', null, null), true);
+    assert.equal(canAccessRoute('/forgot-password', null, null), true);
+    assert.equal(canAccessRoute('/reset-password', null, null), true);
     assert.equal(canAccessRoute('/', null, null), false);
 
     // VIEWER can see Resumo and Configuracoes, but not Fluxo de Caixa, Cartoes, or Admin
