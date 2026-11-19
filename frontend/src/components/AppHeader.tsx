@@ -24,6 +24,7 @@ import {
   Landmark,
   Link2,
   Home,
+  Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePrivacy } from "@/lib/privacy";
@@ -70,6 +71,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { href: "/investimentos", label: "Carteira", icon: Briefcase, exact: true },
       { href: "/investimentos/proventos", label: "Proventos", icon: HandCoins },
+      { href: "/investimentos/metas", label: "Metas", icon: Target },
     ],
   },
   { href: "/cartoes", label: "Cartões", icon: CreditCard, requiredAny: ["view:cartao"] },
