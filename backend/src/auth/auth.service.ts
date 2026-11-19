@@ -25,6 +25,12 @@ import {
     isResetTokenValid,
     PASSWORD_RESET_TTL_MINUTES,
 } from './password-reset.helper';
+import {
+    computeRefreshExpiry,
+    evaluateRefreshTokenStatus,
+    generateRefreshToken,
+    hashRefreshToken,
+} from './refresh-token.helper';
 import { ensureBootstrapWorkspace, ensureRbacCatalog, filterPermissionsByPlan } from './rbac-catalog';
 import { seedDefaultWorkspaceData } from '../workspaces/default-workspace-seed';
 
@@ -50,7 +56,7 @@ export class AuthService implements OnModuleInit {
         await ensureBootstrapWorkspace(this.prisma);
     }
 
-    async login(dto: LoginDto) {
+    async login(dto: LoginDto, userAgent?: string) {
         const identifier = dto.email.trim().toLowerCase();
         const emailCandidates = identifier.includes('@')
             ? [identifier]
@@ -69,17 +75,19 @@ export class AuthService implements OnModuleInit {
             throw new UnauthorizedException('E-mail ou senha inválidos.');
         }
 
+        const rememberMe = Boolean(dto.rememberMe);
         const accessToken = await this.jwtService.signAsync({
             sub: user.id,
             email: user.email,
             tv: user.tokenVersion,
         });
+        const refreshToken = await this.issueRefreshToken(user.id, rememberMe, userAgent);
 
         const profile = await this.getProfile(user.id);
-        return { accessToken, ...profile };
+        return { accessToken, refreshToken, rememberMe, ...profile };
     }
 
-    async register(dto: RegisterDto) {
+    async register(dto: RegisterDto, userAgent?: string) {
         const email = dto.email.trim().toLowerCase();
         const existing = await this.prisma.user.findUnique({ where: { email } });
         if (existing) {
@@ -137,9 +145,10 @@ export class AuthService implements OnModuleInit {
             email: result.user.email,
             tv: result.user.tokenVersion,
         });
+        const refreshToken = await this.issueRefreshToken(result.user.id, false, userAgent);
 
         const profile = await this.getProfile(result.user.id, result.workspace.id);
-        return { accessToken, ...profile };
+        return { accessToken, refreshToken, rememberMe: false, ...profile };
     }
 
     async getProfile(userId: string, requestedWorkspaceId?: string) {
@@ -301,12 +310,16 @@ export class AuthService implements OnModuleInit {
                 where: { userId: record.userId, usedAt: null },
                 data: { usedAt: now },
             }),
+            this.prisma.refreshToken.updateMany({
+                where: { userId: record.userId, revokedAt: null },
+                data: { revokedAt: now },
+            }),
         ]);
 
         return { message: 'Senha redefinida com sucesso. Faça login com sua nova senha.' };
     }
 
-    async changePassword(userId: string, dto: ChangePasswordDto) {
+    async changePassword(userId: string, dto: ChangePasswordDto, userAgent?: string) {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
             select: { id: true, email: true, isActive: true, passwordHash: true },
@@ -318,25 +331,143 @@ export class AuthService implements OnModuleInit {
             throw new UnauthorizedException('Senha atual incorreta.');
         }
 
-        const updated = await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                passwordHash: hashPassword(dto.newPassword),
-                tokenVersion: { increment: 1 },
-            },
-            select: { id: true, email: true, tokenVersion: true },
-        });
+        const now = new Date();
+        const [updated] = await this.prisma.$transaction([
+            this.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    passwordHash: hashPassword(dto.newPassword),
+                    tokenVersion: { increment: 1 },
+                },
+                select: { id: true, email: true, tokenVersion: true },
+            }),
+            this.prisma.refreshToken.updateMany({
+                where: { userId: user.id, revokedAt: null },
+                data: { revokedAt: now },
+            }),
+        ]);
 
         const accessToken = await this.jwtService.signAsync({
             sub: updated.id,
             email: updated.email,
             tv: updated.tokenVersion,
         });
+        const refreshToken = await this.issueRefreshToken(updated.id, false, userAgent);
 
         return {
             message: 'Senha alterada com sucesso.',
             accessToken,
+            refreshToken,
+            rememberMe: false,
         };
+    }
+
+    async refreshSession(
+        rawRefreshToken: string | null,
+        userAgent?: string,
+        requestedWorkspaceId?: string,
+    ) {
+        if (!rawRefreshToken) {
+            throw new UnauthorizedException('Sessão expirada. Faça login novamente.');
+        }
+
+        const now = new Date();
+        const tokenHash = hashRefreshToken(rawRefreshToken);
+        const record = await this.prisma.refreshToken.findUnique({
+            where: { tokenHash },
+            include: {
+                user: {
+                    select: { id: true, email: true, isActive: true, tokenVersion: true },
+                },
+            },
+        });
+
+        const status = evaluateRefreshTokenStatus(record, now);
+        if (status === 'REVOKED_REUSE' && record) {
+            this.logger.warn(
+                `Refresh token reuse detected for user=${record.userId} family=${record.familyId}; revoking entire family.`,
+            );
+            await this.prisma.refreshToken.updateMany({
+                where: { familyId: record.familyId, revokedAt: null },
+                data: { revokedAt: now },
+            });
+            throw new UnauthorizedException('Sessão revogada por segurança. Faça login novamente.');
+        }
+
+        if (status !== 'VALID' || !record || !record.user.isActive) {
+            if (record && !record.revokedAt) {
+                await this.prisma.refreshToken.update({
+                    where: { id: record.id },
+                    data: { revokedAt: now },
+                });
+            }
+            throw new UnauthorizedException('Sessão expirada. Faça login novamente.');
+        }
+
+        const next = generateRefreshToken();
+        const nextExpiresAt = computeRefreshExpiry(record.rememberMe, now);
+
+        await this.prisma.$transaction([
+            this.prisma.refreshToken.update({
+                where: { id: record.id },
+                data: { revokedAt: now },
+            }),
+            this.prisma.refreshToken.create({
+                data: {
+                    userId: record.userId,
+                    tokenHash: next.tokenHash,
+                    familyId: record.familyId,
+                    rememberMe: record.rememberMe,
+                    expiresAt: nextExpiresAt,
+                    userAgent: userAgent?.slice(0, 255) || null,
+                },
+            }),
+        ]);
+
+        const accessToken = await this.jwtService.signAsync({
+            sub: record.user.id,
+            email: record.user.email,
+            tv: record.user.tokenVersion,
+        });
+
+        const profile = await this.getProfile(record.user.id, requestedWorkspaceId);
+        return {
+            accessToken,
+            refreshToken: next.rawToken,
+            rememberMe: record.rememberMe,
+            ...profile,
+        };
+    }
+
+    async logout(rawRefreshToken: string | null) {
+        if (rawRefreshToken) {
+            const tokenHash = hashRefreshToken(rawRefreshToken);
+            await this.prisma.refreshToken.updateMany({
+                where: { tokenHash, revokedAt: null },
+                data: { revokedAt: new Date() },
+            });
+        }
+        return { message: 'Sessão encerrada com sucesso.' };
+    }
+
+    private async issueRefreshToken(
+        userId: string,
+        rememberMe: boolean,
+        userAgent?: string,
+    ): Promise<string> {
+        const { rawToken, tokenHash } = generateRefreshToken();
+        const expiresAt = computeRefreshExpiry(rememberMe);
+        await this.prisma.refreshToken.create({
+            data: {
+                userId,
+                tokenHash,
+                familyId: randomUUID(),
+                rememberMe,
+                expiresAt,
+                userAgent: userAgent?.slice(0, 255) || null,
+            },
+        });
+        return rawToken;
     }
 
     private resolveFrontendOrigin(): string {

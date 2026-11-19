@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { WorkspaceRbacGuard } from './guards/workspace-rbac.guard';
 import { MailService } from './mail.service';
+import { ACCESS_TOKEN_TTL } from './refresh-token.helper';
 
 function resolveJwtSecret(): string {
     const secret = process.env.JWT_SECRET?.trim();
@@ -27,7 +28,7 @@ function resolveJwtSecret(): string {
         JwtModule.registerAsync({
             useFactory: () => ({
                 secret: resolveJwtSecret(),
-                signOptions: { expiresIn: '7d' },
+                signOptions: { expiresIn: ACCESS_TOKEN_TTL },
             }),
         }),
     ],
